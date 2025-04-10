@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sync"
 	"time"
 )
 
@@ -84,39 +85,19 @@ func (i *StreamDecoder) ioErr(e error) error {
 	return e
 }
 
-func (i *StreamDecoder) deadlineDecode(ctx context.Context, dReader DeadlineReader, v any) error {
-	dctx, stop := context.WithCancel(ctx)
-	defer stop()
-
-	// Reset any deadline for a fresh read
-	timeout := time.Time{}
-
-	// Apply idle timeout
-	if i.t > 0 {
-		timeout = time.Now().Add(i.t)
-	}
-
-	if err := dReader.SetReadDeadline(timeout); err != nil {
-		return err
-	}
-
-	after := context.AfterFunc(dctx, func() {
-		_ = dReader.SetReadDeadline(time.Now())
-	})
-
-	dErr := i.ioErr(i.d.Decode(v))
-
-	if !after() {
-		return errors.Join(dErr, dctx.Err())
-	}
-
-	return dErr
-}
-
-func (i *StreamDecoder) closeDecode(ctx context.Context, cReader io.Closer, v any) error {
+func (i *StreamDecoder) cancelDecode(ctx context.Context, cReader io.Closer, v any) error {
 	var dctx context.Context
 
 	var stop context.CancelFunc
+
+	deadLiner, haveDeadline := cReader.(DeadlineReader)
+
+	if haveDeadline {
+		// Reset timeout if it had fired
+		if err := deadLiner.SetReadDeadline(time.Time{}); err != nil {
+			return err
+		}
+	}
 
 	if i.t > 0 {
 		// With idle timeout
@@ -127,14 +108,25 @@ func (i *StreamDecoder) closeDecode(ctx context.Context, cReader io.Closer, v an
 
 	defer stop()
 
-	// Reset any deadline for a fresh read
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+
 	after := context.AfterFunc(dctx, func() {
+		defer wg.Done()
+
+		if haveDeadline {
+			_ = deadLiner.SetReadDeadline(time.Now())
+			return
+		}
+
 		cReader.Close()
 	})
 
 	dErr := i.ioErr(i.d.Decode(v))
 
 	if !after() {
+		wg.Wait()
 		return errors.Join(dErr, dctx.Err())
 	}
 
@@ -148,14 +140,9 @@ func (i *StreamDecoder) Decode(ctx context.Context, v any) error {
 		i.lr.N = i.n
 	}
 
-	// Supports deadline, use that for cancel
-	if d, ok := i.r.(DeadlineReader); ok {
-		return i.deadlineDecode(ctx, d, v)
-	}
-
 	// Supports close, use that for cancel
 	if c, ok := i.r.(io.Closer); ok {
-		return i.closeDecode(ctx, c, v)
+		return i.cancelDecode(ctx, c, v)
 	}
 
 	// Does not support deadline or close, no way to cancel

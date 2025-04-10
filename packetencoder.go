@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -53,24 +54,18 @@ func (i *PacketConnEncoder) SetIdleTimeout(d time.Duration) {
 
 // DecodeFrom implements [PacketEncoder].
 func (i *PacketConnEncoder) EncodeTo(ctx context.Context, v any, addr net.Addr) error {
-	dctx, stop := context.WithCancel(ctx)
-	defer stop()
+	var dctx context.Context
 
-	// Reset any deadline for a fresh read
-	timeout := time.Time{}
+	var stop context.CancelFunc
 
-	// Apply idle timeout
 	if i.t > 0 {
-		timeout = time.Now().Add(i.t)
+		// With idle timeout
+		dctx, stop = context.WithTimeout(ctx, i.t)
+	} else {
+		dctx, stop = context.WithCancel(ctx)
 	}
 
-	if err := i.w.SetWriteDeadline(timeout); err != nil {
-		return err
-	}
-
-	after := context.AfterFunc(dctx, func() {
-		_ = i.w.SetWriteDeadline(time.Now())
-	})
+	defer stop()
 
 	buf, err := i.Marshal(v)
 
@@ -78,9 +73,25 @@ func (i *PacketConnEncoder) EncodeTo(ctx context.Context, v any, addr net.Addr) 
 		return err
 	}
 
+	// Reset deadline if it had fired
+	if terr := i.w.SetWriteDeadline(time.Time{}); terr != nil {
+		return terr
+	}
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+
+	after := context.AfterFunc(dctx, func() {
+		defer wg.Done()
+
+		_ = i.w.SetWriteDeadline(time.Now())
+	})
+
 	_, err = i.w.WriteTo(buf, addr)
 
 	if !after() {
+		wg.Wait()
 		return errors.Join(err, dctx.Err())
 	}
 

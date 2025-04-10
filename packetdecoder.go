@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -61,24 +62,23 @@ func (i *PacketConnDecoder) SetIdleTimeout(d time.Duration) {
 
 // DecodeFrom implements [PacketDecoder].
 func (i *PacketConnDecoder) DecodeFrom(ctx context.Context, v any) (net.Addr, error) {
-	dctx, stop := context.WithCancel(ctx)
+	var dctx context.Context
+
+	var stop context.CancelFunc
+
+	if i.t > 0 {
+		// With idle timeout
+		dctx, stop = context.WithTimeout(ctx, i.t)
+	} else {
+		dctx, stop = context.WithCancel(ctx)
+	}
+
 	defer stop()
 
-	// Reset any deadline for a fresh read
-	timeout := time.Time{}
-
-	// Apply idle timeout
-	if i.t > 0 {
-		timeout = time.Now().Add(i.t)
-	}
-
-	if err := i.r.SetReadDeadline(timeout); err != nil {
+	// Reset deadline if it had fired
+	if err := i.r.SetReadDeadline(time.Time{}); err != nil {
 		return nil, err
 	}
-
-	after := context.AfterFunc(dctx, func() {
-		_ = i.r.SetReadDeadline(time.Now())
-	})
 
 	readSize := i.n
 
@@ -88,9 +88,20 @@ func (i *PacketConnDecoder) DecodeFrom(ctx context.Context, v any) (net.Addr, er
 
 	buf := make([]byte, readSize)
 
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+
+	after := context.AfterFunc(dctx, func() {
+		defer wg.Done()
+
+		_ = i.r.SetReadDeadline(time.Now())
+	})
+
 	read, addr, err := i.r.ReadFrom(buf)
 
 	if !after() {
+		defer wg.Wait()
 		return addr, errors.Join(err, dctx.Err())
 	}
 

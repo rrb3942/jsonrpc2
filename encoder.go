@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sync"
 	"time"
 )
 
@@ -55,39 +56,19 @@ func (i *StreamEncoder) SetIdleTimeout(d time.Duration) {
 	i.t = d
 }
 
-func (i *StreamEncoder) deadlineEncode(ctx context.Context, dWriter DeadlineWriter, v any) error {
-	dctx, stop := context.WithCancel(ctx)
-	defer stop()
-
-	// Reset any deadline for a fresh read
-	timeout := time.Time{}
-
-	// Apply idle timeout
-	if i.t > 0 {
-		timeout = time.Now().Add(i.t)
-	}
-
-	if err := dWriter.SetWriteDeadline(timeout); err != nil {
-		return err
-	}
-
-	after := context.AfterFunc(dctx, func() {
-		_ = dWriter.SetWriteDeadline(time.Now())
-	})
-
-	dErr := i.e.Encode(v)
-
-	if !after() {
-		return errors.Join(dErr, ctx.Err())
-	}
-
-	return dErr
-}
-
-func (i *StreamEncoder) closeEncode(ctx context.Context, cWriter io.Closer, v any) error {
+func (i *StreamEncoder) cancelEncode(ctx context.Context, cWriter io.Closer, v any) error {
 	var dctx context.Context
 
 	var stop context.CancelFunc
+
+	deadLiner, haveDeadline := cWriter.(DeadlineWriter)
+
+	if haveDeadline {
+		// Reset timeout if it had fired
+		if err := deadLiner.SetWriteDeadline(time.Time{}); err != nil {
+			return err
+		}
+	}
 
 	if i.t > 0 {
 		// With idle timeout
@@ -98,8 +79,18 @@ func (i *StreamEncoder) closeEncode(ctx context.Context, cWriter io.Closer, v an
 
 	defer stop()
 
-	// Reset any deadline for a fresh read
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+
 	after := context.AfterFunc(dctx, func() {
+		defer wg.Done()
+
+		if haveDeadline {
+			_ = deadLiner.SetWriteDeadline(time.Now())
+			return
+		}
+
 		cWriter.Close()
 	})
 
@@ -114,14 +105,9 @@ func (i *StreamEncoder) closeEncode(ctx context.Context, cWriter io.Closer, v an
 
 // Encode encodes the next json value from the underlying Writer into v.
 func (i *StreamEncoder) Encode(ctx context.Context, v any) error {
-	// Supports deadline, use that for cancel
-	if d, ok := i.w.(DeadlineWriter); ok {
-		return i.deadlineEncode(ctx, d, v)
-	}
-
 	// Supports close, use that for cancel
 	if c, ok := i.w.(io.Closer); ok {
-		return i.closeEncode(ctx, c, v)
+		return i.cancelEncode(ctx, c, v)
 	}
 
 	// Does not support deadline or close, no way to cancel

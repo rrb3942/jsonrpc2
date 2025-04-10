@@ -7,12 +7,12 @@ import (
 
 // DeadlineReader represents an [io.Reader] that supports setting a deadline.
 type DeadlineReader interface {
-	io.Reader
+	io.ReadCloser
 	SetReadDeadline(time.Time) error
 }
 
 // DeadlineWrite represents an [io.Write] that supports setting a deadline.
 type DeadlineWriter interface {
-	io.Writer
+	io.WriteCloser
 	SetWriteDeadline(time.Time) error
 }
