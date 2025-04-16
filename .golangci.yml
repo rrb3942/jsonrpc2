@@ -67,6 +67,7 @@ linters:
       enable-all: true
     ireturn:
       allow:
+        - generic
         - anon
         - error
         - empty
