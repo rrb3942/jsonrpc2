@@ -29,3 +29,8 @@ func (n *Notification) AsRequest() *Request {
 
 	return (*Request)(unsafe.Pointer(n))
 }
+
+// Used in Batch for identifying elements.
+func (n *Notification) id() ID {
+	return n.ID
+}

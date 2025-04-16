@@ -38,3 +38,8 @@ func NewResponseError(e error) *Response {
 func (r *Response) IsError() bool {
 	return !r.Error.IsZero()
 }
+
+// Used in batch for identifying elements.
+func (r *Response) id() ID {
+	return r.ID
+}

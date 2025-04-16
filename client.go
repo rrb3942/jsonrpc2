@@ -79,14 +79,14 @@ func (c *Client) Call(ctx context.Context, r *Request) (*Response, error) {
 }
 
 // CallBatch calls a batch of [][*Request] over the configured stream and returns any responses in [][*Response].
-func (c *Client) CallBatch(ctx context.Context, r []*Request) ([]*Response, error) {
+func (c *Client) CallBatch(ctx context.Context, r Batch[*Request]) (Batch[*Response], error) {
 	rawResp, err := c.call(ctx, r, false)
 
 	if err != nil {
 		return nil, err
 	}
 
-	var resp []*Response
+	resp := NewBatch[*Response](len(r))
 
 	if err := c.d.Unmarshal(rawResp, &resp); err != nil {
 		return nil, err
@@ -121,7 +121,7 @@ func (c *Client) CallWithTimeout(ctx context.Context, timeout time.Duration, r *
 }
 
 // CallBatchWithTimeout behaves the same as [Client.CallBatch] but also accepts a timeout for the request.
-func (c *Client) CallBatchWithTimeout(ctx context.Context, timeout time.Duration, r []*Request) ([]*Response, error) {
+func (c *Client) CallBatchWithTimeout(ctx context.Context, timeout time.Duration, r Batch[*Request]) (Batch[*Response], error) {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
 
@@ -146,7 +146,7 @@ func (c *Client) Notify(ctx context.Context, n *Notification) error {
 }
 
 // NotifyBatch sends the given batch of [][*Notifications], not waiting for a response.
-func (c *Client) NotifyBatch(ctx context.Context, n []*Notification) error {
+func (c *Client) NotifyBatch(ctx context.Context, n Batch[*Notification]) error {
 	if _, err := c.call(ctx, n, true); err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func (c *Client) NotifyWithTimeout(ctx context.Context, timeout time.Duration, n
 }
 
 // NotifyBatchWithTimeout behaves the same as [Client.NotifyBatch] but also accepts a timeout for the notifications.
-func (c *Client) NotifyBatchWithTimeout(ctx context.Context, timeout time.Duration, n []*Notification) error {
+func (c *Client) NotifyBatchWithTimeout(ctx context.Context, timeout time.Duration, n Batch[*Notification]) error {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
 
