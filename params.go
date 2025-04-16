@@ -19,18 +19,25 @@ type Params struct {
 	value any
 }
 
-// ParamValues is a constraint for the [NewParams] function to prevent the use of incorrect types.
+// NewParamsArray returns a new [Params] with its value set to v.
 //
-// [json.RawMessage] may be used to provide pre-encoded or custom params.
-type ParamValues[K comparable, V any] interface {
-	~map[K]V | ~[]V | json.RawMessage
+// v must be a slice type.
+func NewParamsArray[V any, P ~[]V](v P) Params {
+	return Params{value: v}
 }
 
-// NewParams returns a new [Params] with its value set to v.
+// NewParamsObj returns a new [Params] with its value set to v.
 //
-// See [ParamValues] for valid types for v.
-func NewParams[K comparable, V any, P ParamValues[K, V]](v P) Params {
+// v must be a map type.
+func NewParamsObj[K comparable, V any, P ~map[K]V](v P) Params {
 	return Params{value: v}
+}
+
+// NewParamsRaw returns a new [Params] with its value set to v.
+//
+// It only accepts a json.RawMessage.
+func NewParamsRaw(v json.RawMessage) Params {
+	return NewParamsArray(v)
 }
 
 // RawMessage returns the [json.RawMessage] stored.
