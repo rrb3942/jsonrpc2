@@ -42,27 +42,43 @@ func NewNullID() ID {
 // String values are equal if both IDs are string types and are strictly equivalent (==).
 //
 // A json.Number value is never equal to an equivalient string value.
-func (i *ID) Equal(t ID) bool {
+func (id *ID) Equal(t ID) bool {
 	// Unset values are never equal
-	if i.IsZero() || t.IsZero() {
+	if id.IsZero() || t.IsZero() {
 		return false
 	}
 
-	if i.IsNull() {
+	if id.IsNull() {
 		return t.IsNull()
 	}
 
-	switch v := i.value.(type) {
+	switch v := id.value.(type) {
 	case json.Number:
 		if jn, ok := t.Number(); ok {
 			return v == jn
 		}
+
+		if vi, err := v.Int64(); err == nil {
+			if in, err := t.Int64(); err == nil {
+				return vi == in
+			}
+
+			return false
+		}
+
+		if vf, err := v.Float64(); err == nil {
+			if fn, err := t.Float64(); err == nil {
+				return vf == fn
+			}
+
+			return false
+		}
 	case int64:
-		if in, err := t.Int64(); err != nil {
+		if in, err := t.Int64(); err == nil {
 			return v == in
 		}
 	case float64:
-		if fn, err := t.Float64(); err != nil {
+		if fn, err := t.Float64(); err == nil {
 			return v == fn
 		}
 	case string:
@@ -76,29 +92,29 @@ func (i *ID) Equal(t ID) bool {
 
 // IsZero returns true if ID is not set to a value of any kind.
 // If IsZero() is true, it is equivalent to the ID not being present.
-func (i *ID) IsZero() bool {
-	return !i.present
+func (id *ID) IsZero() bool {
+	return !id.present
 }
 
 // IsNull() returns true if the ID is set to a null or nil value.
-func (i *ID) IsNull() bool {
-	if i.present {
-		return i.value == nil
+func (id *ID) IsNull() bool {
+	if id.present {
+		return id.value == nil
 	}
 
 	return false
 }
 
 // RawValue returns the raw underlying value of the ID. It may be nil.
-func (i *ID) RawValue() any {
-	return i.value
+func (id *ID) RawValue() any {
+	return id.value
 }
 
 // String returns a string representation of the id value.
 // The bool will be true if the underlying type was an explicit string and a valid value was returned.
 // If the ID is value is null the string value will be empty bool will be false.
-func (i *ID) String() (string, bool) {
-	if v, ok := i.value.(string); ok {
+func (id *ID) String() (string, bool) {
+	if v, ok := id.value.(string); ok {
 		return v, true
 	}
 
@@ -108,11 +124,11 @@ func (i *ID) String() (string, bool) {
 // Number returns the value as a json.Number
 // If the value is not a json.Number the bool will return false.
 // Raw string values will not be converted.
-func (i *ID) Number() (json.Number, bool) {
-	if i.value != nil {
-		num, ok := i.value.(json.Number)
-
-		return num, ok
+func (id *ID) Number() (json.Number, bool) {
+	if id.value != nil {
+		if num, ok := id.value.(json.Number); ok {
+			return num, ok
+		}
 	}
 
 	return json.Number(""), false
@@ -121,12 +137,12 @@ func (i *ID) Number() (json.Number, bool) {
 // Float64 returns the value as a float64.
 // String values will not be automatically converted.
 // The returned error indicates if the returned value is valid.
-func (i *ID) Float64() (float64, error) {
-	if num, ok := i.Number(); ok {
+func (id *ID) Float64() (float64, error) {
+	if num, ok := id.Number(); ok {
 		return num.Float64()
 	}
 
-	if f, ok := i.value.(float64); ok {
+	if f, ok := id.value.(float64); ok {
 		return f, nil
 	}
 
@@ -136,12 +152,12 @@ func (i *ID) Float64() (float64, error) {
 // Int64 returns the value as a int64.
 // String values will not be automatically converted.
 // The returned error indicates if the returned value is valid.
-func (i *ID) Int64() (int64, error) {
-	if num, ok := i.Number(); ok {
+func (id *ID) Int64() (int64, error) {
+	if num, ok := id.Number(); ok {
 		return num.Int64()
 	}
 
-	if i, ok := i.value.(int64); ok {
+	if i, ok := id.value.(int64); ok {
 		return i, nil
 	}
 
@@ -149,7 +165,7 @@ func (i *ID) Int64() (int64, error) {
 }
 
 // UnmarshalJSON implements the [json.Unmarshaler] interface.
-func (i *ID) UnmarshalJSON(data []byte) error {
+func (id *ID) UnmarshalJSON(data []byte) error {
 	switch {
 	// String value
 	case data[0] == '"':
@@ -158,11 +174,11 @@ func (i *ID) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("%w (%w)", ErrDecoding, err)
 		}
 
-		i.value = str
-		i.present = true
+		id.value = str
+		id.present = true
 	// null
 	case string(data) == "null":
-		i.present = true
+		id.present = true
 	default:
 		// Otherwise must be a number
 		var num json.Number
@@ -170,16 +186,16 @@ func (i *ID) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("%w (%w)", ErrDecoding, err)
 		}
 
-		i.value = num
-		i.present = true
+		id.value = num
+		id.present = true
 	}
 
 	return nil
 }
 
 // MarshalJSON implements the [json.Marshaler] interface.
-func (i *ID) MarshalJSON() ([]byte, error) {
-	buf, err := json.Marshal(i.value)
+func (id *ID) MarshalJSON() ([]byte, error) {
+	buf, err := json.Marshal(id.value)
 
 	if err != nil {
 		return nil, fmt.Errorf("%w (%w)", ErrEncoding, err)
