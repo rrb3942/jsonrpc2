@@ -56,7 +56,7 @@ func (p *Params) RawMessage() json.RawMessage {
 // If a [json.RawMessage] is not stored it will return [ErrNotRawMessage].
 func (p *Params) Unmarshal(v any) error {
 	if raw, ok := p.value.(json.RawMessage); ok {
-		return json.Unmarshal(raw, v)
+		return Unmarshal(raw, v)
 	}
 
 	return ErrNotRawMessage
@@ -97,5 +97,5 @@ func (p *Params) UnmarshalJSON(data []byte) error {
 
 // MarshalJSON implements the [json.Marshaler] interface.
 func (p *Params) MarshalJSON() ([]byte, error) {
-	return json.Marshal(p.value)
+	return Marshal(p.value)
 }

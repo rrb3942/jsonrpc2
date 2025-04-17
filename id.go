@@ -170,7 +170,7 @@ func (id *ID) UnmarshalJSON(data []byte) error {
 	// String value
 	case data[0] == '"':
 		var str string
-		if err := json.Unmarshal(data, &str); err != nil {
+		if err := Unmarshal(data, &str); err != nil {
 			return fmt.Errorf("%w (%w)", ErrDecoding, err)
 		}
 
@@ -182,7 +182,7 @@ func (id *ID) UnmarshalJSON(data []byte) error {
 	default:
 		// Otherwise must be a number
 		var num json.Number
-		if err := json.Unmarshal(data, &num); err != nil {
+		if err := Unmarshal(data, &num); err != nil {
 			return fmt.Errorf("%w (%w)", ErrDecoding, err)
 		}
 
@@ -195,7 +195,7 @@ func (id *ID) UnmarshalJSON(data []byte) error {
 
 // MarshalJSON implements the [json.Marshaler] interface.
 func (id *ID) MarshalJSON() ([]byte, error) {
-	buf, err := json.Marshal(id.value)
+	buf, err := Marshal(id.value)
 
 	if err != nil {
 		return nil, fmt.Errorf("%w (%w)", ErrEncoding, err)

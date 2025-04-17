@@ -14,3 +14,13 @@ import (
 )
 
 var nullValue = json.RawMessage("null")
+
+// Marshal is the Marshal function that will be used internally by various data types.
+// This may be set by the application to implement a custom marshaling.
+// See [Encoder] on requirements for any compatabil replacement function.
+var Marshal = json.Marshal
+
+// Unmarshal is the Unmarshal function that will be used internally by various data types.
+// This may be set by the application to implement a custom unmarshalling.
+// See [Decoder] on requirements for any compatible replacement function.
+var Unmarshal = json.Unmarshal

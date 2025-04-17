@@ -55,7 +55,7 @@ func (h *HTTPBridge) Encode(ctx context.Context, v any) error {
 	h.respCode = 0
 	h.respJSON = false
 
-	buf, err := json.Marshal(v)
+	buf, err := Marshal(v)
 
 	if err != nil {
 		return nil

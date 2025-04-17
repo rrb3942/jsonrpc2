@@ -1,7 +1,6 @@
 package jsonrpc2
 
 import (
-	"encoding/json"
 	"errors"
 )
 
@@ -92,10 +91,10 @@ func (e Error) Error() string {
 
 // UnmarshalJSON implements [json.Unmarshaler].
 func (e *Error) UnmarshalJSON(b []byte) error {
-	return json.Unmarshal(b, &e.err)
+	return Unmarshal(b, &e.err)
 }
 
 // MarshalJSON implements [json.Marshaler].
 func (e *Error) MarshalJSON() ([]byte, error) {
-	return json.Marshal(&e.err)
+	return Marshal(&e.err)
 }

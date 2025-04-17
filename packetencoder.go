@@ -2,7 +2,6 @@ package jsonrpc2
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"sync"
@@ -16,7 +15,6 @@ import (
 // PacketEncoder must be go-routine safe.
 type PacketEncoder interface {
 	EncodeTo(context.Context, any, net.Addr) error
-	Marshal(any) ([]byte, error)
 }
 
 // NewPacketEncoderFunc defines a function returning a new [PacketEncoder].
@@ -67,7 +65,7 @@ func (i *PacketConnEncoder) EncodeTo(ctx context.Context, v any, addr net.Addr) 
 
 	defer stop()
 
-	buf, err := i.Marshal(v)
+	buf, err := Marshal(v)
 
 	if err != nil {
 		return err
@@ -96,11 +94,6 @@ func (i *PacketConnEncoder) EncodeTo(ctx context.Context, v any, addr net.Addr) 
 	}
 
 	return err
-}
-
-// Unmarshal unmarshals data into v.
-func (i *PacketConnEncoder) Marshal(v any) ([]byte, error) {
-	return json.Marshal(v)
 }
 
 // Close will close the underlying reader if it supports [io.Closer].

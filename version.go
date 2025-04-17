@@ -1,7 +1,6 @@
 package jsonrpc2
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -24,7 +23,7 @@ func (v *Version) IsValid() bool {
 func (v *Version) UnmarshalJSON(data []byte) error {
 	var str string
 
-	if err := json.Unmarshal(data, &str); err != nil {
+	if err := Unmarshal(data, &str); err != nil {
 		return fmt.Errorf("%w (%w)", ErrDecoding, err)
 	}
 
@@ -38,7 +37,7 @@ func (v *Version) UnmarshalJSON(data []byte) error {
 }
 
 func (Version) MarshalJSON() ([]byte, error) {
-	buf, err := json.Marshal(string(ProtocolVersion))
+	buf, err := Marshal(string(ProtocolVersion))
 
 	if err != nil {
 		return nil, fmt.Errorf("%w (%w)", ErrEncoding, err)

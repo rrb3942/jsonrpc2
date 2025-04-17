@@ -42,7 +42,7 @@ func (d *Data) Value() any {
 func (d *Data) Unmarshal(v any) error {
 	switch vt := d.value.(type) {
 	case json.RawMessage:
-		return json.Unmarshal(vt, v)
+		return Unmarshal(vt, v)
 	case nil:
 		return ErrEmptyData
 	}
@@ -77,5 +77,5 @@ func (d *Data) UnmarshalJSON(data []byte) error {
 
 // MarshalJSON implements the [json.Marshaler] interface.
 func (d *Data) MarshalJSON() ([]byte, error) {
-	return json.Marshal(d.value)
+	return Marshal(d.value)
 }
