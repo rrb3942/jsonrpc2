@@ -2,7 +2,6 @@ package jsonrpc2
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"sync"
@@ -41,7 +40,7 @@ func (lw *lockWriter) Write(data []byte) (int, error) {
 type StreamEncoder struct {
 	lw *lockWriter
 	w  io.Writer
-	e  *json.Encoder
+	e  JSONEncoder
 	t  time.Duration
 }
 
@@ -56,7 +55,7 @@ func NewEncoder(r io.Writer) Encoder {
 // NewStreamEncoder returns a new [*StreamEncoder] utilizing w as the output.
 func NewStreamEncoder(w io.Writer) *StreamEncoder {
 	lw := &lockWriter{w: w}
-	return &StreamEncoder{lw: lw, w: w, e: json.NewEncoder(lw)}
+	return &StreamEncoder{lw: lw, w: w, e: NewJSONEncoder(lw)}
 }
 
 // SetIdleTimeout sets an idle timeout for Encoding.

@@ -2,7 +2,6 @@ package jsonrpc2
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"sync"
@@ -34,7 +33,7 @@ type NewDecoderFunc func(io.Reader) Decoder
 type StreamDecoder struct {
 	r  io.Reader
 	lr *io.LimitedReader
-	d  *json.Decoder
+	d  JSONDecoder
 	n  int64
 	t  time.Duration
 }
@@ -49,7 +48,7 @@ func NewDecoder(r io.Reader) Decoder {
 
 // NewStreamDecoder returns a new [*StreamDecoder] utilizing r as the source.
 func NewStreamDecoder(r io.Reader) *StreamDecoder {
-	return &StreamDecoder{r: r, d: json.NewDecoder(r)}
+	return &StreamDecoder{r: r, d: NewJSONDecoder(r)}
 }
 
 // SetLimit sets the maximum bytes to decode in a single call. The decoder will return [ErrJSONTooLarge] if the limit is reached on a call to Decode.
@@ -58,7 +57,7 @@ func (i *StreamDecoder) SetLimit(n int64) {
 
 	i.lr = &io.LimitedReader{R: i.r, N: i.n}
 
-	i.d = json.NewDecoder(i.lr)
+	i.d = NewJSONDecoder(i.lr)
 }
 
 // SetIdleTimeout sets an idle timeout for decoding.
@@ -151,7 +150,7 @@ func (i *StreamDecoder) Decode(ctx context.Context, v any) error {
 
 // Unmarshal unmarshals data into v.
 func (i *StreamDecoder) Unmarshal(data []byte, v any) error {
-	return json.Unmarshal(data, v)
+	return Unmarshal(data, v)
 }
 
 // Close will close the underlying reader if it supports [io.Closer].

@@ -2,7 +2,6 @@ package jsonrpc2
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"sync"
@@ -114,7 +113,7 @@ func (i *PacketConnDecoder) DecodeFrom(ctx context.Context, v any) (net.Addr, er
 
 // Unmarshal unmarshals data into v.
 func (i *PacketConnDecoder) Unmarshal(data []byte, v any) error {
-	return json.Unmarshal(data, v)
+	return Unmarshal(data, v)
 }
 
 // Close will close the underlying reader if it supports [io.Closer].

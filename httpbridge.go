@@ -3,7 +3,6 @@ package jsonrpc2
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -105,7 +104,7 @@ func (h *HTTPBridge) Decode(ctx context.Context, v any) error {
 
 	if h.respJSON {
 		if h.respBuffer.Len() > 0 {
-			return json.Unmarshal(h.respBuffer.Bytes(), v)
+			return Unmarshal(h.respBuffer.Bytes(), v)
 		}
 
 		return fmt.Errorf("%w (status: %s)", ErrHTTPEmptyResponse, h.respStatus)
@@ -120,5 +119,5 @@ func (h *HTTPBridge) Decode(ctx context.Context, v any) error {
 
 // Unmarshal implements [Decoder].
 func (h *HTTPBridge) Unmarshal(data []byte, v any) error {
-	return json.Unmarshal(data, v)
+	return Unmarshal(data, v)
 }
