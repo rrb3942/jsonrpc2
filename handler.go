@@ -6,6 +6,8 @@ import (
 	"errors"
 )
 
+var ErrMethodAlreadyExists = errors.New("method already exits in mux")
+
 // A Handler accepts and process a [*Request], potentially return a result on success, or an error on failure.
 // It is called asynchronously from a [*Connection] to handle client requests.
 //
@@ -59,4 +61,62 @@ func handleRequest(ctx context.Context, handler Handler, decoder interface{ Unma
 	}
 
 	return req.ResponseWithResult(result)
+}
+
+// funcHandler is used to wrap a function into a [Handler].
+type funcHandler struct {
+	funcHandle func(context.Context, *Request) (any, error)
+}
+
+// Handle implements [Handler].
+func (fh *funcHandler) Handle(ctx context.Context, req *Request) (any, error) {
+	return fh.funcHandle(ctx, req)
+}
+
+// MethodMux is an implementation of [Handler] that will route a given method to a given [Handler].
+//
+// Method routing is case sensitive.
+//
+// It should not be modified once the [Server] has started.
+type MethodMux struct {
+	mux map[string]Handler
+}
+
+// NewMethodMux returns a new [*MethodMux] that is ready to use.
+func NewMethodMux() *MethodMux {
+	return &MethodMux{mux: make(map[string]Handler)}
+}
+
+// Register adds the handler to the mux for the given method.
+// If a handler already exists for the given method it returns [ErrMethodAlreadyExists].
+func (mm *MethodMux) Register(method string, handler Handler) error {
+	if _, ok := mm.mux[method]; ok {
+		return ErrMethodAlreadyExists
+	}
+
+	mm.mux[method] = handler
+
+	return nil
+}
+
+// RegisterFunc adds the given function to handle the given method.
+// If a handler already exists for the given method it returns [ErrMethodAlreadyExists].
+func (mm *MethodMux) RegisterFunc(method string, handler func(context.Context, *Request) (any, error)) error {
+	if _, ok := mm.mux[method]; ok {
+		return ErrMethodAlreadyExists
+	}
+
+	mm.mux[method] = &funcHandler{funcHandle: handler}
+
+	return nil
+}
+
+// Handle implements [Handler] and servers the given request, routing it to the
+// registered handler for the method.
+func (mm *MethodMux) Handle(ctx context.Context, req *Request) (any, error) {
+	if handler, ok := mm.mux[req.Method]; ok {
+		return handler.Handle(ctx, req)
+	}
+
+	return nil, ErrMethodNotFound
 }
