@@ -13,7 +13,7 @@ var ErrEncoding = errors.New("jsonrpc2: encoding error")
 
 // Encoder represents a compatible Encoder for use with [StreamServer] and [Client].
 //
-// A compatible implementation must support all types and interfaces of [encoding/json] including,
+// A compatible implementation MUST be go-routine safe and support all types and interfaces of [encoding/json] including,
 // but not limited to, [json.Marshaler], [json.Unmarshaler], [json.RawMessage], [json.Number] and the `omitzero` struct
 // tag introduced in go 1.24.
 //
@@ -25,11 +25,24 @@ type Encoder interface {
 // NewEncoderFunc defines a function returning a new [Encoder].
 type NewEncoderFunc func(io.Writer) Encoder
 
+type lockWriter struct {
+	w  io.Writer
+	mu sync.Mutex
+}
+
+func (lw *lockWriter) Write(data []byte) (int, error) {
+	lw.mu.Lock()
+	defer lw.mu.Unlock()
+
+	return lw.w.Write(data)
+}
+
 // StreamEncoder is a configurable [Encoder] supporting idle timeouts.
 type StreamEncoder struct {
-	w io.Writer
-	e *json.Encoder
-	t time.Duration
+	lw *lockWriter
+	w  io.Writer
+	e  *json.Encoder
+	t  time.Duration
 }
 
 // NewEncoder returns a new [Encoder] utilizing w as the output.
@@ -42,7 +55,8 @@ func NewEncoder(r io.Writer) Encoder {
 
 // NewStreamEncoder returns a new [*StreamEncoder] utilizing w as the output.
 func NewStreamEncoder(w io.Writer) *StreamEncoder {
-	return &StreamEncoder{w: w, e: json.NewEncoder(w)}
+	lw := &lockWriter{w: w}
+	return &StreamEncoder{lw: lw, w: w, e: json.NewEncoder(lw)}
 }
 
 // SetIdleTimeout sets an idle timeout for Encoding.

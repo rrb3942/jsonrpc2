@@ -16,7 +16,6 @@ type StreamServer struct {
 	decoder   Decoder
 	Handler   Handler
 	encoder   Encoder
-	mu        sync.Mutex
 	// Run batches in serial without go-routine fan out
 	SerialBatch bool
 	// Don't run requests in a separate go-routine
@@ -51,23 +50,9 @@ func NewStreamServerFromIO(rw io.ReadWriter, handler Handler) *StreamServer {
 	return connHandler
 }
 
-func (s *StreamServer) encodeResponse(ctx context.Context, r any) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.encoder.Encode(ctx, r)
-}
-
-func (s *StreamServer) encodeResponses(ctx context.Context, r []any) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.encoder.Encode(ctx, r)
-}
-
 func (s *StreamServer) runRequest(ctx context.Context, r json.RawMessage) {
 	if resp := handleRequest(ctx, s.Handler, s.decoder, &s.Callbacks, r); resp != nil {
-		if err := s.encodeResponse(ctx, resp); err != nil {
+		if err := s.encoder.Encode(ctx, resp); err != nil {
 			s.Callbacks.runOnEncodingError(ctx, resp, err)
 		}
 	}
@@ -84,7 +69,7 @@ func (s *StreamServer) runRequests(ctx context.Context, raw json.RawMessage) {
 	if err != nil {
 		s.Callbacks.runOnDecodingError(ctx, raw, err)
 
-		_ = s.encodeResponse(ctx, &Response{ID: NewNullID(), Error: ErrInvalidRequest.WithData(err.Error())})
+		_ = s.encoder.Encode(ctx, &Response{ID: NewNullID(), Error: ErrInvalidRequest.WithData(err.Error())})
 
 		return
 	}
@@ -124,7 +109,7 @@ func (s *StreamServer) runRequests(ctx context.Context, raw json.RawMessage) {
 	}
 
 	if len(resps) > 0 {
-		if err := s.encodeResponses(ctx, resps); err != nil {
+		if err := s.encoder.Encode(ctx, resps); err != nil {
 			s.Callbacks.runOnEncodingError(ctx, resps, err)
 		}
 	}
@@ -137,7 +122,7 @@ func (s *StreamServer) run(ctx context.Context, buf json.RawMessage) {
 	case '{':
 		s.runRequest(ctx, buf)
 	default:
-		_ = s.encodeResponse(ctx, &Response{ID: NewNullID(), Error: ErrParse})
+		_ = s.encoder.Encode(ctx, &Response{ID: NewNullID(), Error: ErrParse})
 	}
 }
 
