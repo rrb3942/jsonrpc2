@@ -27,9 +27,9 @@ func NewBasicClient(e Encoder, d Decoder) *BasicClient {
 }
 
 // NewBasicClient returns a new [BasicClient] wrapping an the provided [io.ReadWriter].
-func NewBasicClientIO(io io.ReadWriter) *BasicClient {
+func NewBasicClientIO(rw io.ReadWriter) *BasicClient {
 	//nolint:gosec // We just want to avoid always starting at 0
-	return &BasicClient{client: NewClientIO(io), id: rand.Uint32()}
+	return &BasicClient{client: NewClientIO(rw), id: rand.Uint32()}
 }
 
 // Close closes the underlying [Client]

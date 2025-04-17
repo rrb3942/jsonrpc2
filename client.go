@@ -23,8 +23,8 @@ func NewClient(e Encoder, d Decoder) *Client {
 }
 
 // NewClient returns a new [Client] wrapping an the provided [io.ReadWriter].
-func NewClientIO(io io.ReadWriter) *Client {
-	return &Client{e: NewEncoder(io), d: NewDecoder(io)}
+func NewClientIO(rw io.ReadWriter) *Client {
+	return &Client{e: NewEncoder(rw), d: NewDecoder(rw)}
 }
 
 // Close closes the underlying [Encoder] and [Decoder] if they support [io.Closer]
