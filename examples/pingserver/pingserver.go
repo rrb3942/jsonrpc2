@@ -28,7 +28,7 @@ func main() {
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	listenURI := flag.String("listen", "127.0.0.1:9090", "Network address to listen on in form of IP:PORT")
+	listenURI := flag.String("listen", "tcp:127.0.0.1:9090", "Network address to listen on in form of PROTO:IP:PORT. May also be an HTTP url and path to listen and serve on.")
 	flag.Parse()
 
 	myHandler := &handler{}
