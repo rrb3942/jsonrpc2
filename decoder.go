@@ -126,10 +126,13 @@ func (i *StreamDecoder) cancelDecode(ctx context.Context, cReader io.Closer, v a
 
 	if !after() {
 		wg.Wait()
+	}
+
+	if dErr != nil {
 		return errors.Join(dErr, dctx.Err())
 	}
 
-	return dErr
+	return nil
 }
 
 // Decode decodes the next json value from the underlying reader into v.

@@ -110,10 +110,14 @@ func (i *StreamEncoder) cancelEncode(ctx context.Context, cWriter io.Closer, v a
 	err := i.e.Encode(v)
 
 	if !after() {
+		wg.Wait()
+	}
+
+	if err != nil {
 		return errors.Join(err, dctx.Err())
 	}
 
-	return err
+	return nil
 }
 
 // Encode encodes the next json value from the underlying Writer into v.
