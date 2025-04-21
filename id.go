@@ -10,14 +10,17 @@ var ErrIDNotANumber = errors.New("ID is not a number")
 
 // ID represents a jsonrpc2 id used for identifying requests and their responses.
 //
-// Valid underlying value types for IDs are strings, integers, floats (discouraged), and null (discouraged).
+// Valid json types for IDs are strings, integers, floats (discouraged), and null (discouraged).
+//
+// Numeric values are always decoded to a [json.Number].
+//
+// To avoid precision and other issues with floats, they are required to be in a [json.Number] format, and the floats are not operated on directly.
 type ID struct {
 	value   any
 	present bool
 }
 
-// NewID returns a new non-zero ID set to v.
-// Only certain types are valid for use as an ID.
+// To use a float as an ID, first marshal it to a [json.Number].
 func NewID[V int64 | string | json.Number](v V) ID {
 	return ID{present: true, value: v}
 }
@@ -34,14 +37,14 @@ func NewNullID() ID {
 //
 // Two IDs with the null value are equal if both IDs are null.
 //
-// Number value IDs are equivalent if they are the same type and pass a straight comparison (==).
-// The only exception is that, if possible, json.Number values will be converted to compatible types before comparison.
-//
-// json.Number values are compared using string comparison if both types are json.Number.
-//
 // String values are equal if both IDs are string types and are strictly equivalent (==).
 //
-// A json.Number value is never equal to an equivalient string value.
+// Numeric values are never equal to a string value.
+//
+// If numeric values are both [json.Number], they are compared using string comparison (==). This is what is used to compare floats.
+//
+// int64 values are compared directly (==).
+// A [json.Number] will automatically be converted to an int64 for comparison IF the [json.Number] is an integer.
 func (id *ID) Equal(t ID) bool {
 	// Unset values are never equal
 	if id.IsZero() || t.IsZero() {
@@ -54,32 +57,20 @@ func (id *ID) Equal(t ID) bool {
 
 	switch v := id.value.(type) {
 	case json.Number:
+		// Both numbers, do straight cmp
 		if jn, ok := t.Number(); ok {
 			return v == jn
 		}
 
-		if vi, err := v.Int64(); err == nil {
-			if in, err := t.Int64(); err == nil {
+		// If target is int64 we can try to match
+		if in, err := t.Int64(); err == nil {
+			if vi, err := v.Int64(); err == nil {
 				return vi == in
 			}
-
-			return false
-		}
-
-		if vf, err := v.Float64(); err == nil {
-			if fn, err := t.Float64(); err == nil {
-				return vf == fn
-			}
-
-			return false
 		}
 	case int64:
 		if in, err := t.Int64(); err == nil {
 			return v == in
-		}
-	case float64:
-		if fn, err := t.Float64(); err == nil {
-			return v == fn
 		}
 	case string:
 		if s, ok := t.String(); ok {
@@ -123,7 +114,7 @@ func (id *ID) String() (string, bool) {
 
 // Number returns the value as a json.Number
 // If the value is not a json.Number the bool will return false.
-// Raw string values will not be converted.
+// Raw string and integer values will not be converted.
 func (id *ID) Number() (json.Number, bool) {
 	if id.value != nil {
 		if num, ok := id.value.(json.Number); ok {
@@ -132,21 +123,6 @@ func (id *ID) Number() (json.Number, bool) {
 	}
 
 	return json.Number(""), false
-}
-
-// Float64 returns the value as a float64.
-// String values will not be automatically converted.
-// The returned error indicates if the returned value is valid.
-func (id *ID) Float64() (float64, error) {
-	if num, ok := id.Number(); ok {
-		return num.Float64()
-	}
-
-	if f, ok := id.value.(float64); ok {
-		return f, nil
-	}
-
-	return 0, ErrIDNotANumber
 }
 
 // Int64 returns the value as a int64.
