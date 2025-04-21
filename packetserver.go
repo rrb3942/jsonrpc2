@@ -79,6 +79,16 @@ func (p *PacketServer) runRequests(ctx context.Context, raw json.RawMessage, fro
 		return
 	}
 
+	// Handle empty array case
+	if len(objs) == 0 {
+		resp := &Response{ID: NewNullID(), Error: ErrInvalidRequest}
+		if err := p.encoder.EncodeTo(ctx, resp, from); err != nil {
+			p.Callbacks.runOnEncodingError(ctx, resp, err)
+		}
+
+		return
+	}
+
 	resps = make([]any, 0, len(objs))
 
 	if len(objs) == 1 || p.SerialBatch {

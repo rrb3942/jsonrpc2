@@ -78,6 +78,16 @@ func (s *StreamServer) runRequests(ctx context.Context, raw json.RawMessage) {
 		return
 	}
 
+	// Handle empty array case
+	if len(objs) == 0 {
+		resp := &Response{ID: NewNullID(), Error: ErrInvalidRequest}
+		if err := s.encoder.Encode(ctx, resp); err != nil {
+			s.Callbacks.runOnEncodingError(ctx, resp, err)
+		}
+
+		return
+	}
+
 	resps = make([]any, 0, len(objs))
 
 	if len(objs) == 1 || s.SerialBatch {
