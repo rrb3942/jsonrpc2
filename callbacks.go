@@ -3,7 +3,13 @@ package jsonrpc2
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 )
+
+// DefaultOnHandlerPanic is the default callback when a handler panics. It ensures that a panic is logged even if callbacks are not otherwise configured.
+var DefaultOnHandlerPanic = func(ctx context.Context, req *Request, rec any) {
+	slog.ErrorContext(ctx, "Panic in handler", "Request", req, "Panic", rec)
+}
 
 // Callbacks contains functions to run at on various events in a [*StreamServer].
 //

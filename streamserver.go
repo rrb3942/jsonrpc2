@@ -34,6 +34,8 @@ func NewStreamServer(d Decoder, e Encoder, handler Handler) *StreamServer {
 		Handler: handler,
 	}
 
+	connHandler.Callbacks.OnHandlerPanic = DefaultOnHandlerPanic
+
 	return connHandler
 }
 
@@ -46,6 +48,8 @@ func NewStreamServerFromIO(rw io.ReadWriter, handler Handler) *StreamServer {
 		encoder: NewEncoder(rw),
 		Handler: handler,
 	}
+
+	connHandler.Callbacks.OnHandlerPanic = DefaultOnHandlerPanic
 
 	return connHandler
 }

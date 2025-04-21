@@ -35,6 +35,8 @@ func NewPacketServer(d PacketDecoder, e PacketEncoder, handler Handler) *PacketS
 		Handler: handler,
 	}
 
+	connHandler.Callbacks.OnHandlerPanic = DefaultOnHandlerPanic
+
 	return connHandler
 }
 
@@ -47,6 +49,8 @@ func NewPacketServerFromIO(rw net.PacketConn, handler Handler) *PacketServer {
 		encoder: NewPacketEncoder(rw),
 		Handler: handler,
 	}
+
+	connHandler.Callbacks.OnHandlerPanic = DefaultOnHandlerPanic
 
 	return connHandler
 }
