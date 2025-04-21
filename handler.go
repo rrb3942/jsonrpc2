@@ -16,12 +16,12 @@ var ErrMethodAlreadyExists = errors.New("method already exits in mux")
 // If error is, or wraps an [Error] the [Error] will be used directly in the response.
 // Other values for error will automatically be converted to an [ErrInternalError] with the data field populated with the error string.
 //
-// If the request was a notification any response is ignored unless the error is of type [ErrParse] or [ErrInvalidRequest] which generally should not be returned by the handler.
+// Notifications automaically drop any responses or errors.
 type Handler interface {
 	Handle(context.Context, *Request) (any, error)
 }
 
-func handleRequest(ctx context.Context, handler Handler, decoder interface{ Unmarshal([]byte, any) error }, callbacks *Callbacks, rpc json.RawMessage) any {
+func handleRequest(ctx context.Context, handler Handler, decoder interface{ Unmarshal([]byte, any) error }, callbacks *Callbacks, rpc json.RawMessage) (res any) {
 	var req Request
 
 	err := decoder.Unmarshal(rpc, &req)
@@ -32,15 +32,18 @@ func handleRequest(ctx context.Context, handler Handler, decoder interface{ Unma
 		return &Response{ID: NewNullID(), Error: ErrInvalidRequest.WithData(err.Error())}
 	}
 
+	// Catch panics from inside the handler
+	defer func() {
+		if r := recover(); r != nil {
+			res = ErrInternalError
+
+			callbacks.runOnHandlerPanic(ctx, &req, r)
+		}
+	}()
+
 	result, err := handler.Handle(ctx, &req)
 
 	if req.IsNotification() {
-		if err != nil {
-			if errors.Is(err, ErrInvalidRequest) || errors.Is(err, ErrParse) {
-				return req.ResponseWithError(err)
-			}
-		}
-
 		return nil
 	}
 

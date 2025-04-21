@@ -15,6 +15,8 @@ type Callbacks struct {
 	OnDecodingError func(context.Context, json.RawMessage, error)
 	// Run whenever writing to the encoder fails. The error can be inspected to determine if you wish to cancel the server.
 	OnEncodingError func(context.Context, any, error)
+	// Run whenever a json message cannot be parsed into a Request
+	OnHandlerPanic func(context.Context, *Request, any)
 }
 
 func (c *Callbacks) runOnExit(ctx context.Context, e error) {
@@ -32,5 +34,11 @@ func (c *Callbacks) runOnDecodingError(ctx context.Context, m json.RawMessage, e
 func (c *Callbacks) runOnEncodingError(ctx context.Context, d any, e error) {
 	if c.OnEncodingError != nil {
 		c.OnEncodingError(ctx, d, e)
+	}
+}
+
+func (c *Callbacks) runOnHandlerPanic(ctx context.Context, r *Request, recovery any) {
+	if c.OnHandlerPanic != nil {
+		c.OnHandlerPanic(ctx, r, recovery)
 	}
 }
