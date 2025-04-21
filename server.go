@@ -18,13 +18,13 @@ const (
 	// Key for the underlying net.Conn.
 	CtxNetConn ContextKey = iota
 	// Key for the underlying *http.Request.
-	CtxHTTPRequest ContextKey = iota
+	CtxHTTPRequest
 	// Key for underlying from addr on packet servers.
-	CtxFromAddr ContextKey = iota
+	CtxFromAddr
 	// Key for parent StreamServer.
-	CtxStreamServer ContextKey = iota
+	CtxStreamServer
 	// Key for parent PacketServer.
-	CtxPacketServer ContextKey = iota
+	CtxPacketServer
 
 	// Default header read timeout when listening on an http.Server.
 	DefaultHTTPReadTimeout = 5
