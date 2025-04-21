@@ -16,11 +16,10 @@ func run() int {
 	defer stop()
 
 	method := flag.String("method", "ping", "Method to send")
-	proto := flag.String("proto", "tcp", "Protocol to connect over (tcp, udp, unix, etc)")
-	addr := flag.String("addr", "127.0.0.1:9090", "Network address of the server in form of IP:PORT")
+	destURI := flag.String("dest", "tcp:127.0.0.1:9090", "Network address of the server in form of PROTO:IP:PORT. Maybe also be an HTTP URL.")
 	flag.Parse()
 
-	client, err := jsonrpc2.DialBasic(shutdownCtx, *proto, *addr)
+	client, err := jsonrpc2.DialBasic(shutdownCtx, *destURI)
 
 	if err != nil {
 		log.Println(err)
