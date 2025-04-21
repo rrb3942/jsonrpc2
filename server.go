@@ -47,15 +47,18 @@ type Binder interface {
 //
 // For packet oriented servers, the context key of [CtxFromAddr] is set with the [net.Addr] from which the request was received.
 type Server struct {
-	handler             Handler
-	Binder              Binder
-	NewEncoder          NewEncoderFunc
-	NewDecoder          NewDecoderFunc
-	NewPacketEncoder    NewPacketEncoderFunc
-	NewPacketDecoder    NewPacketDecoderFunc
-	HTTPReadTimeout     time.Duration
+	handler          Handler
+	Binder           Binder
+	NewEncoder       NewEncoderFunc
+	NewDecoder       NewDecoderFunc
+	NewPacketEncoder NewPacketEncoderFunc
+	NewPacketDecoder NewPacketDecoderFunc
+	// Read header timeout if serving HTTP
+	HTTPReadTimeout time.Duration
+	// Graceful shutdown timeout if serving HTTP
 	HTTPShutdownTimeout time.Duration
-	HTTPMaxBytes        int64
+	// Max body size if serving HTTP
+	HTTPMaxBytes int64
 }
 
 // NewServer returns a new [*Server] that uses handler as the default [Handler].
