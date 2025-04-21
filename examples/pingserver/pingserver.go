@@ -5,7 +5,6 @@ import (
 	"flag"
 	"log"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/rrb3942/jsonrpc2"
@@ -29,23 +28,14 @@ func main() {
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	proto := flag.String("proto", "tcp", "Protocol to listen on (tcp, udp, unix, http, etc)")
-	addr := flag.String("addr", "127.0.0.1:9090", "Network address to listen on in form of IP:PORT")
+	listenURI := flag.String("listen", "127.0.0.1:9090", "Network address to listen on in form of IP:PORT")
 	flag.Parse()
 
 	myHandler := &handler{}
 
 	server := jsonrpc2.NewServer(myHandler)
 
-	if strings.HasPrefix(*proto, "udp") || *proto == "unixgram" || *proto == "unixpacket" {
-		if err := server.ListenAndServePacket(shutdownCtx, *proto, *addr); err != nil {
-			log.Println(err)
-		}
-
-		return
-	}
-
-	if err := server.ListenAndServe(shutdownCtx, *proto, *addr); err != nil {
+	if err := server.ListenAndServe(shutdownCtx, *listenURI); err != nil {
 		log.Println(err)
 	}
 }

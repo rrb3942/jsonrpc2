@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
+	"net/url"
+	"strings"
 	"sync"
+	"time"
 )
 
 // ContextKey is used as keys for context values.
@@ -21,7 +25,14 @@ const (
 	CtxStreamServer ContextKey = iota
 	// Key for parent PacketServer.
 	CtxPacketServer ContextKey = iota
+
+	// Default header read timeout when listening on an http.Server.
+	DefaultHTTPReadTimeout = 5
+	// Default shutdown timeout when shutting down an http.Server.
+	DefaultHTTPShutdownTimeout = 30
 )
+
+var ErrUnknownScheme = errors.New("unknown scheme in uri")
 
 // The cancel function may be used to stop the current [*StreamServer].
 type Binder interface {
@@ -36,12 +47,15 @@ type Binder interface {
 //
 // For packet oriented servers, the context key of [CtxFromAddr] is set with the [net.Addr] from which the request was received.
 type Server struct {
-	handler          Handler
-	Binder           Binder
-	NewEncoder       NewEncoderFunc
-	NewDecoder       NewDecoderFunc
-	NewPacketEncoder NewPacketEncoderFunc
-	NewPacketDecoder NewPacketDecoderFunc
+	handler             Handler
+	Binder              Binder
+	NewEncoder          NewEncoderFunc
+	NewDecoder          NewDecoderFunc
+	NewPacketEncoder    NewPacketEncoderFunc
+	NewPacketDecoder    NewPacketDecoderFunc
+	HTTPReadTimeout     time.Duration
+	HTTPShutdownTimeout time.Duration
+	HTTPMaxBytes        int64
 }
 
 // NewServer returns a new [*Server] that uses handler as the default [Handler].
@@ -53,14 +67,46 @@ func NewServer(handler Handler) *Server {
 	server.NewDecoder = NewDecoder
 	server.NewPacketEncoder = NewPacketEncoder
 	server.NewPacketDecoder = NewPacketDecoder
+	server.HTTPReadTimeout = time.Duration(DefaultHTTPReadTimeout) * time.Second
+	server.HTTPShutdownTimeout = time.Duration(DefaultHTTPShutdownTimeout) * time.Second
 
 	return &server
 }
 
-// ListenAndServe listens on the given network and address, serving connections until its context is cancelled.
+// ListenAndServer will listen on the given uri, serving it until the context is cancelled.
 //
-// It is safe to call ListenAndServe multiple times with different listening address.
-func (s *Server) ListenAndServe(ctx context.Context, network, addr string) error {
+// Supported schemes: tcp, tcp4, tcp6, udp, udp4, udp6, unix, unixgram, unixpacket, http
+//
+// If listenURI is an http url, a [http.Sever] will be started to listen on the given address and serve the given path
+//
+// Examples uris: 'tcp:127.0.0.1:9090', 'udp::9090', 'http://127.0.0.1:8080/rpc', 'unix:///tmp/mysocket'
+func (s *Server) ListenAndServe(ctx context.Context, listenURI string) error {
+	uri, err := url.Parse(listenURI)
+
+	if err != nil {
+		return err
+	}
+
+	switch uri.Scheme {
+	case "tcp", "tcp4", "tcp6":
+		return s.listenAndServe(ctx, uri.Scheme, strings.TrimPrefix(listenURI, uri.Scheme+":"))
+	case "unix":
+		return s.listenAndServe(ctx, uri.Scheme, uri.Path)
+	case "udp", "udp4", "udp6":
+		return s.listenAndServePacket(ctx, uri.Scheme, strings.TrimPrefix(listenURI, uri.Scheme+":"))
+	case "unixgram", "unixpacket":
+		return s.listenAndServePacket(ctx, uri.Scheme, uri.Path)
+	case "http":
+		return s.listenAndServeHTTP(ctx, uri)
+	}
+
+	return ErrUnknownScheme
+}
+
+// listenAndServe listens on the given network and address, serving connections until its context is cancelled.
+//
+// It is safe to call listenAndServe multiple times with different listening address.
+func (s *Server) listenAndServe(ctx context.Context, network, addr string) error {
 	ln, err := net.Listen(network, addr)
 
 	if err != nil {
@@ -70,12 +116,12 @@ func (s *Server) ListenAndServe(ctx context.Context, network, addr string) error
 	return s.Serve(ctx, ln)
 }
 
-// ListenAndServePacket listens on the given packet connection, serving requests until its context is cancelled.
+// listenAndServePacket listens on the given packet connection, serving requests until its context is cancelled.
 //
 // [Binder] is not called at all for packet connections.
 //
-// It is safe to call ListenAndServePacket multiple times with different listening address.
-func (s *Server) ListenAndServePacket(ctx context.Context, network, addr string) error {
+// It is safe to call listenAndServePacket multiple times with different listening address.
+func (s *Server) listenAndServePacket(ctx context.Context, network, addr string) error {
 	pc, err := net.ListenPacket(network, addr)
 
 	if err != nil {
@@ -83,6 +129,42 @@ func (s *Server) ListenAndServePacket(ctx context.Context, network, addr string)
 	}
 
 	return s.ServePacket(ctx, pc)
+}
+
+// listenAndServeHTTP starts an HTTP server on the given host:port of the uri and serves the given path with handler
+//
+// It is safe to call listenAndServeHTTP multiple times with different listening address.
+func (s *Server) listenAndServeHTTP(ctx context.Context, uri *url.URL) error {
+	shutdownCtx, stop := context.WithCancel(ctx)
+	defer stop()
+
+	httpMux := http.NewServeMux()
+
+	handler := NewHTTPHandler(s.handler)
+	handler.Binder = s.Binder
+	handler.NewDecoder = s.NewDecoder
+	handler.NewEncoder = s.NewEncoder
+	handler.MaxBytes = s.HTTPMaxBytes
+
+	httpMux.Handle(uri.Path, handler)
+
+	httpServer := &http.Server{Addr: uri.Host, Handler: httpMux, ReadHeaderTimeout: s.HTTPReadTimeout}
+
+	// Close listener on shutdown
+	go func() {
+		<-shutdownCtx.Done()
+
+		sctx, sStop := context.WithTimeout(context.Background(), s.HTTPShutdownTimeout)
+		defer sStop()
+
+		//nolint:contextcheck // Shutdown timeout, if we inherit it will already be cancelled
+		if err := httpServer.Shutdown(sctx); err != nil {
+			// Forcefull
+			httpServer.Close()
+		}
+	}()
+
+	return httpServer.ListenAndServe()
 }
 
 // Serve listens on the given listener, serving connections until its context is cancelled.
