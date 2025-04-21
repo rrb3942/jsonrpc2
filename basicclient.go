@@ -14,7 +14,7 @@ import (
 //
 // If [Params] are empty (Params{}), they are not included in the request/notification.
 //
-// BasicClient is NOT goroutine-safe.
+// BasicClient is goroutine-safe but only operates on a single connection/stream.
 type BasicClient struct {
 	client *Client
 	id     uint32

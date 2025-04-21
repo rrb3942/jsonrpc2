@@ -5,16 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sync"
 	"time"
 )
 
 // Client represents a client connection to a remote jsonrpc2 server.
 // It may be used to make calls against a server and retrieve their responses.
 //
-// Client is NOT goroutine-safe.
+// Client is goroutine-safe but only operates with a single connection/stream.
 type Client struct {
-	e Encoder
-	d Decoder
+	e  Encoder
+	d  Decoder
+	mu sync.Mutex
 }
 
 // NewClient returns a new [Client] wrapping an the provided [Encoder] and [Decoder].
@@ -31,6 +33,9 @@ func NewClientIO(rw io.ReadWriter) *Client {
 //
 // Calls to [Client] should not be made after Close has been called.
 func (c *Client) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	var err error
 
 	if c, ok := c.e.(io.Closer); ok {
@@ -45,6 +50,13 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) call(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if err := c.e.Encode(ctx, rpc); err != nil {
 		return nil, err
 	}
