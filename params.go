@@ -51,6 +51,17 @@ func (p *Params) RawMessage() json.RawMessage {
 	return nil
 }
 
+// TypeHint provides a hint for the type of json data contained. See [TypeHint].
+//
+// Returns [TypeNotJSON] if boxed type is not a [json.RawMessage].
+func (p *Params) TypeHint() TypeHint {
+	if m, ok := p.value.(json.RawMessage); ok {
+		return jsonHintType(m)
+	}
+
+	return TypeNotJSON
+}
+
 // Unmarshal will unmarshal the store [json.RawMessage] into v, returning any errors.
 //
 // If a [json.RawMessage] is not stored it will return [ErrNotRawMessage].

@@ -157,10 +157,10 @@ func (rp *RequestServer) runRequests(ctx context.Context, raw json.RawMessage, f
 func (rp *RequestServer) run(ctx context.Context, buf json.RawMessage, from net.Addr) {
 	ctx = context.WithValue(ctx, CtxFromAddr, from)
 
-	switch buf[0] {
-	case '[':
+	switch jsonHintType(buf) {
+	case TypeArray:
 		rp.runRequests(ctx, buf, from)
-	case '{':
+	case TypeObj:
 		rp.runRequest(ctx, buf, from)
 	default:
 		_ = rp.encoder.EncodeTo(ctx, &Response{ID: NewNullID(), Error: ErrParse}, from)

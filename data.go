@@ -34,6 +34,17 @@ func (d *Data) Value() any {
 	return d.value
 }
 
+// TypeHint provides a hint for the type of json data contained. See [TypeHint].
+//
+// Returns [TypeNotJSON] if boxed type is not a [json.RawMessage].
+func (d *Data) TypeHint() TypeHint {
+	if m, ok := d.value.(json.RawMessage); ok {
+		return jsonHintType(m)
+	}
+
+	return TypeNotJSON
+}
+
 // Unmarshal will call unmarshal the internal [json.RawMessage] into v, returning any errors.
 //
 // If the internal value is nil, [ErrEmptyData] is returned and v is untouched.
