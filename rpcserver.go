@@ -160,7 +160,7 @@ func (rp *RPCServer) run(ctx context.Context, buf json.RawMessage, from net.Addr
 	switch jsonHintType(buf) {
 	case TypeArray:
 		rp.runRequests(ctx, buf, from)
-	case TypeObj:
+	case TypeObject:
 		rp.runRequest(ctx, buf, from)
 	default:
 		_ = rp.encoder.EncodeTo(ctx, &Response{ID: NewNullID(), Error: ErrParse}, from)

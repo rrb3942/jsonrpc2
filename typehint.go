@@ -11,7 +11,7 @@ type TypeHint int
 const (
 	TypeUnknown TypeHint = iota
 	TypeArray
-	TypeObj
+	TypeObject
 	TypeBool
 	TypeNumber
 	TypeString
@@ -36,7 +36,7 @@ func jsonHintType(m json.RawMessage) TypeHint {
 	case '[':
 		return TypeArray
 	case '{':
-		return TypeObj
+		return TypeObject
 	case 't', 'f':
 		return TypeBool
 	case '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':

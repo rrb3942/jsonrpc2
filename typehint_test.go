@@ -14,7 +14,7 @@ func TestJsonHintType(t *testing.T) {
 	}{
 		{"Empty", json.RawMessage{}, TypeEmpty},
 		{"Array", json.RawMessage(`[]`), TypeArray},
-		{"Object", json.RawMessage(`{}`), TypeObj},
+		{"Object", json.RawMessage(`{}`), TypeObject},
 		{"True", json.RawMessage(`true`), TypeBool},
 		{"False", json.RawMessage(`false`), TypeBool},
 		{"Positive Integer", json.RawMessage(`123`), TypeNumber},
@@ -24,8 +24,8 @@ func TestJsonHintType(t *testing.T) {
 		{"String", json.RawMessage(`"hello"`), TypeString},
 		{"Null", json.RawMessage(`null`), TypeNull},
 		{"Unknown", json.RawMessage(`invalid`), TypeUnknown},
-		{"Whitespace Array", json.RawMessage(`  [ ] `), TypeArray}, // Whitespace testing
-		{"Whitespace Object", json.RawMessage(`  { } `), TypeObj},  // Whitespace testing
+		{"Whitespace Array", json.RawMessage(`  [ ] `), TypeArray},   // Whitespace testing
+		{"Whitespace Object", json.RawMessage(`  { } `), TypeObject}, // Whitespace testing
 	}
 
 	for _, tt := range tests {

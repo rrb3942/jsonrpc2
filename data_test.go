@@ -8,6 +8,7 @@ import (
 )
 
 func TestData_RawMessage(t *testing.T) {
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name  string
 		input Data
@@ -39,6 +40,7 @@ func TestData_RawMessage(t *testing.T) {
 }
 
 func TestData_Value(t *testing.T) {
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name  string
 		input Data
@@ -70,6 +72,7 @@ func TestData_Value(t *testing.T) {
 }
 
 func TestData_TypeHint(t *testing.T) {
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name  string
 		input Data
@@ -135,6 +138,7 @@ func TestData_Unmarshal(t *testing.T) {
 		Key string `json:"key"`
 	}
 
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name    string
 		input   Data
@@ -172,7 +176,7 @@ func TestData_Unmarshal(t *testing.T) {
 			name:    "unmarshal invalid json",
 			input:   Data{value: json.RawMessage(`{invalid`)},
 			target:  &testStruct{},
-			want:    &testStruct{}, // Target might be partially modified or zeroed by json decoder
+			want:    &testStruct{},       // Target might be partially modified or zeroed by json decoder
 			wantErr: &json.SyntaxError{}, // Expecting a json error
 		},
 	}
@@ -199,6 +203,7 @@ func TestData_Unmarshal(t *testing.T) {
 }
 
 func TestData_IsZero(t *testing.T) {
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name  string
 		input Data
@@ -235,6 +240,7 @@ func TestData_IsZero(t *testing.T) {
 }
 
 func TestData_UnmarshalJSON(t *testing.T) {
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name    string
 		input   []byte
@@ -270,11 +276,13 @@ func TestData_UnmarshalJSON(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var d Data
+
 			err := d.UnmarshalJSON(tt.input)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Data.UnmarshalJSON() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
+
 			if !tt.wantErr && !reflect.DeepEqual(d, tt.want) {
 				t.Errorf("Data.UnmarshalJSON() = %v, want %v", d, tt.want)
 			}
@@ -283,6 +291,7 @@ func TestData_UnmarshalJSON(t *testing.T) {
 }
 
 func TestData_MarshalJSON(t *testing.T) {
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name    string
 		input   Data
@@ -297,7 +306,7 @@ func TestData_MarshalJSON(t *testing.T) {
 		{
 			name:  "raw message array",
 			input: Data{value: json.RawMessage(`[1, 2, 3]`)},
-			want:  []byte(`[1, 2, 3]`),
+			want:  []byte(`[1,2,3]`),
 		},
 		{
 			name:  "map value",
@@ -327,6 +336,7 @@ func TestData_MarshalJSON(t *testing.T) {
 				t.Errorf("Data.MarshalJSON() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
+
 			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Data.MarshalJSON() = %s, want %s", got, tt.want)
 			}

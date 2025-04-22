@@ -77,7 +77,7 @@ func (d *Data) IsZero() bool {
 // UnmarshalJSON implements the [json.Unmarshaler] interface.
 func (d *Data) UnmarshalJSON(data []byte) error {
 	var raw json.RawMessage
-	if err := raw.UnmarshalJSON(data); err != nil {
+	if err := Unmarshal(data, &raw); err != nil {
 		return fmt.Errorf("%w (%w)", ErrDecoding, err)
 	}
 
