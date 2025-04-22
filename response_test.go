@@ -10,6 +10,7 @@ import (
 func TestNewResponseWithResult(t *testing.T) {
 	t.Parallel()
 
+	//nolint:govet //Do not reorder struct
 	testCases := []struct {
 		name     string
 		id       any
@@ -46,9 +47,9 @@ func TestNewResponseWithResult(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			var resp *Response
 			switch id := tc.id.(type) {
 			case int64:
@@ -74,6 +75,7 @@ func TestNewResponseWithError(t *testing.T) {
 	stdErr := errors.New("standard error")
 	internalErrWithData := ErrInternalError.WithData(stdErr.Error())
 
+	//nolint:govet //Do not reorder struct
 	testCases := []struct {
 		name     string
 		id       any
@@ -119,9 +121,9 @@ func TestNewResponseWithError(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			var resp *Response
 			switch id := tc.id.(type) {
 			case int64:
@@ -147,6 +149,7 @@ func TestNewResponseError(t *testing.T) {
 	stdErr := errors.New("another standard error")
 	internalErrWithData := ErrInternalError.WithData(stdErr.Error())
 
+	//nolint:govet //Do not reorder struct
 	testCases := []struct {
 		name     string
 		err      error
@@ -171,9 +174,9 @@ func TestNewResponseError(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			resp := NewResponseError(tc.err)
 
 			assert.Equal(t, tc.expected.ID, resp.ID, "ID mismatch")
@@ -206,7 +209,7 @@ func TestResponse_id(t *testing.T) {
 
 	respInt := &Response{ID: idInt, Result: NewResult("ok")}
 	respStr := &Response{ID: idStr, Error: ErrInternalError}
-	respNull := &Response{ID: idNull, Error: ErrParseError}
+	respNull := &Response{ID: idNull, Error: ErrParse}
 
 	assert.Equal(t, idInt, respInt.id())
 	assert.Equal(t, idStr, respStr.id())
