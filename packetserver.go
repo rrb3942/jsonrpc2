@@ -158,31 +158,34 @@ func (p *PacketServer) Close() error {
 }
 
 // Run runs the server until ctx is cancelled or the connection is broken.
-func (p *PacketServer) Run(ctx context.Context) error {
-	defer p.Close()
-
+func (p *PacketServer) Run(ctx context.Context) (err error) {
 	var wg sync.WaitGroup
-	defer wg.Wait()
 
-	sctx, stop := context.WithCancel(context.WithValue(ctx, CtxPacketServer, p))
-	defer stop()
+	sctx, stop := context.WithCancel(ctx)
 
-	var err error
+	defer func() {
+		if p.WaitOnClose {
+			wg.Wait()
+			stop()
+		} else {
+			stop()
+			wg.Wait()
+		}
 
-	var from net.Addr
+		err = errors.Join(err, ctx.Err(), p.Close())
+
+		p.Callbacks.runOnExit(ctx, err)
+	}()
 
 	for {
+		var from net.Addr
+
 		var buf json.RawMessage
 
 		from, err = p.decoder.DecodeFrom(sctx, &buf)
 
-		if cErr := ctx.Err(); cErr != nil {
-			err = errors.Join(err, cErr)
-			break
-		}
-
-		if err != nil {
-			break
+		if err != nil || ctx.Err() != nil {
+			return
 		}
 
 		if len(buf) == 0 {
@@ -200,12 +203,4 @@ func (p *PacketServer) Run(ctx context.Context) error {
 			}()
 		}
 	}
-
-	if p.WaitOnClose {
-		wg.Wait()
-	}
-
-	p.Callbacks.runOnExit(ctx, err)
-
-	return err
 }

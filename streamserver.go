@@ -155,29 +155,32 @@ func (s *StreamServer) Close() error {
 }
 
 // Run runs the server until ctx is cancelled or the stream is broken.
-func (s *StreamServer) Run(ctx context.Context) error {
-	defer s.Close()
-
+func (s *StreamServer) Run(ctx context.Context) (err error) {
 	var wg sync.WaitGroup
-	defer wg.Wait()
 
 	sctx, stop := context.WithCancel(ctx)
-	defer stop()
 
-	var err error
+	defer func() {
+		if s.WaitOnClose {
+			wg.Wait()
+			stop()
+		} else {
+			stop()
+			wg.Wait()
+		}
+
+		err = errors.Join(err, ctx.Err(), s.Close())
+
+		s.Callbacks.runOnExit(ctx, err)
+	}()
 
 	for {
 		var buf json.RawMessage
 
 		err = s.decoder.Decode(sctx, &buf)
 
-		if cErr := ctx.Err(); cErr != nil {
-			err = errors.Join(err, cErr)
-			break
-		}
-
-		if err != nil {
-			break
+		if err != nil || ctx.Err() != nil {
+			return
 		}
 
 		if len(buf) == 0 {
@@ -195,12 +198,4 @@ func (s *StreamServer) Run(ctx context.Context) error {
 			}()
 		}
 	}
-
-	if s.WaitOnClose {
-		wg.Wait()
-	}
-
-	s.Callbacks.runOnExit(ctx, err)
-
-	return err
 }
