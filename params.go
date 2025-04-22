@@ -91,19 +91,19 @@ func (p *Params) IsZero() bool {
 // UnmarshalJSON implements the [json.Unmarshaler] interface.
 func (p *Params) UnmarshalJSON(data []byte) error {
 	// Must be an object or array
-	switch data[0] {
-	case '{', '[':
+	switch jsonHintType(data) {
+	case TypeObject, TypeArray:
 		var raw json.RawMessage
-		if err := raw.UnmarshalJSON(data); err != nil {
+		if err := Unmarshal(data, &raw); err != nil {
 			return fmt.Errorf("%w (%w)", ErrDecoding, err)
 		}
 
 		p.value = raw
 
 		return nil
+	default:
+		return errInvalidParamDecode
 	}
-
-	return errInvalidParamDecode
 }
 
 // MarshalJSON implements the [json.Marshaler] interface.
