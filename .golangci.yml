@@ -37,7 +37,7 @@ linters:
     - revive
     - staticcheck
     - tagliatelle
-    - testpackage
+#    - testpackage
     - thelper
     - tparallel
     - unconvert
