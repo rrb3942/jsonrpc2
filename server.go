@@ -18,14 +18,14 @@ type ContextKey int
 const (
 	// Key for the underlying net.Conn.
 	CtxNetConn ContextKey = iota
+	// Key for the underlying net.PacketConn.
+	CtxNetPacketConn ContextKey = iota
 	// Key for the underlying *http.Request.
 	CtxHTTPRequest
 	// Key for underlying from addr on packet servers.
 	CtxFromAddr
-	// Key for parent StreamServer.
-	CtxStreamServer
-	// Key for parent PacketServer.
-	CtxPacketServer
+	// Key for parent RequestServer.
+	CtxRequestServer
 
 	// Default header read timeout when listening on an http.Server.
 	DefaultHTTPReadTimeout = 5
@@ -35,14 +35,17 @@ const (
 
 var ErrUnknownScheme = errors.New("unknown scheme in uri")
 
-// The cancel function may be used to stop the current [*StreamServer].
+// Binder is used to configure a [*RequestServer] before it has started.
+// It is called whenever a new [*RequestServer] is created.
+//
+// The cancel function may be used to stop the current [*RequestServer].
 type Binder interface {
 	// Called on new connections or new http requests
 	Bind(context.Context, *RequestServer, context.CancelCauseFunc)
 }
 
 // Server allows for listening for new connections and serving them with the given handler.
-// Each connection is run in its own [*StreamServer] and go-routine.
+// Each connection is run in its own [*RequestServer] and go-routine.
 //
 // For connection oriented servers, the context key of [CtxNetConn] is set with the accepted [net.Conn].
 //
@@ -125,8 +128,6 @@ func (s *Server) listenAndServe(ctx context.Context, network, addr string) error
 
 // listenAndServePacket listens on the given packet connection, serving requests until its context is cancelled.
 //
-// [Binder] is not called at all for packet connections.
-//
 // It is safe to call listenAndServePacket multiple times with different listening address.
 func (s *Server) listenAndServePacket(ctx context.Context, network, addr string) error {
 	pc, err := net.ListenPacket(network, addr)
@@ -202,11 +203,11 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		go func(nctx context.Context, server *Server, conn net.Conn) {
 			defer wg.Done()
 
-			cctx, nstop := context.WithCancelCause(context.WithValue(nctx, CtxNetConn, conn))
-			defer nstop(nil)
-
 			/* New Connection, create a backend for it */
 			rpcServer := NewStreamServer(s.NewDecoder(conn), s.NewEncoder(conn), server.handler)
+
+			cctx, nstop := context.WithCancelCause(context.WithValue(context.WithValue(nctx, CtxNetConn, conn), CtxRequestServer, rpcServer))
+			defer nstop(nil)
 
 			if s.Binder != nil {
 				s.Binder.Bind(cctx, rpcServer, nstop)
@@ -222,10 +223,13 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 //
 // It is safe to call ServePacket multiple times with different listeners.
 //
-// [Binder] is not called at all for packet connections.
+// [Binder] is called for each [*RequestServer] spawned to serve the [net.PacketConn].
 //
 // The listener will be closed when the context is cancelled.
 func (s *Server) ServePacket(ctx context.Context, packetConn net.PacketConn) error {
+	sctx, stop := context.WithCancelCause(context.WithValue(ctx, CtxNetPacketConn, packetConn))
+	defer stop(nil)
+
 	errs := make(chan error, s.PacketRoutines)
 
 	var wg sync.WaitGroup
@@ -235,15 +239,21 @@ func (s *Server) ServePacket(ctx context.Context, packetConn net.PacketConn) err
 
 		go func(gctx context.Context, ch chan<- error) {
 			defer wg.Done()
+			defer stop(nil)
+
 			// Create a new packet server
 			rpcServer := NewPacketServer(s.NewPacketDecoder(packetConn), s.NewPacketEncoder(packetConn), s.handler)
 
 			// Add packet server to context
-			pctx := context.WithValue(gctx, CtxPacketServer, rpcServer)
+			pctx := context.WithValue(gctx, CtxRequestServer, rpcServer)
+
+			if s.Binder != nil {
+				s.Binder.Bind(pctx, rpcServer, stop)
+			}
 
 			// And run it
 			ch <- rpcServer.Run(pctx)
-		}(ctx, errs)
+		}(sctx, errs)
 	}
 
 	wg.Wait()
