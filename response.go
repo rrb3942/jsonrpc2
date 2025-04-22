@@ -2,6 +2,9 @@ package jsonrpc2
 
 // Response represents a jsonrpc2 server response.
 //
+// The spec requires that a response only have a [Result] OR an [Error], not both. Manually modifying or creating response
+// structs may break this spec. It is recommended to use the constructor methods to avoid this.
+//
 //nolint:govet //We want order to match spec examples, even if not required
 type Response struct {
 	Jsonrpc Version `json:"jsonrpc"`
