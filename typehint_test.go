@@ -6,6 +6,7 @@ import (
 )
 
 func TestJsonHintType(t *testing.T) {
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name     string
 		input    json.RawMessage
@@ -23,8 +24,8 @@ func TestJsonHintType(t *testing.T) {
 		{"String", json.RawMessage(`"hello"`), TypeString},
 		{"Null", json.RawMessage(`null`), TypeNull},
 		{"Unknown", json.RawMessage(`invalid`), TypeUnknown},
-		{"Whitespace Array", json.RawMessage(`  [ ] `), TypeUnknown}, // Whitespace is not handled, expects first char
-		{"Whitespace Object", json.RawMessage(`  { } `), TypeUnknown}, // Whitespace is not handled, expects first char
+		{"Whitespace Array", json.RawMessage(`  [ ] `), TypeArray}, // Whitespace testing
+		{"Whitespace Object", json.RawMessage(`  { } `), TypeObj},  // Whitespace testing
 	}
 
 	for _, tt := range tests {

@@ -1,6 +1,7 @@
 package jsonrpc2
 
 import (
+	"bytes"
 	"encoding/json"
 )
 
@@ -25,6 +26,8 @@ const (
 // jsonHintType checks the first byte of a [json.RawMessage] to determine
 // the contained json data type.
 func jsonHintType(m json.RawMessage) TypeHint {
+	m = bytes.TrimSpace(m)
+
 	if len(m) == 0 {
 		return TypeEmpty
 	}
