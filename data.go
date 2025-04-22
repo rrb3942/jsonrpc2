@@ -64,19 +64,7 @@ func (d *Data) Unmarshal(v any) error {
 
 // IsZero returns true if the underlying value is nil or zero length [json.RawMessage].
 func (d *Data) IsZero() bool {
-	if !d.present {
-		return true
-	}
-
-	if d.value == nil {
-		return true
-	}
-
-	if raw, ok := d.value.(json.RawMessage); ok {
-		return len(raw) == 0
-	}
-
-	return false
+	return !d.present
 }
 
 // UnmarshalJSON implements the [json.Unmarshaler] interface.

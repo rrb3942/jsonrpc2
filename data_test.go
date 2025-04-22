@@ -212,12 +212,12 @@ func TestData_IsZero(t *testing.T) {
 		{
 			name:  "nil value",
 			input: Data{present: true, value: nil},
-			want:  true,
+			want:  false,
 		},
 		{
 			name:  "empty raw message",
 			input: Data{present: true, value: json.RawMessage("")},
-			want:  true,
+			want:  false,
 		},
 		{
 			name:  "non-empty raw message",
@@ -227,7 +227,12 @@ func TestData_IsZero(t *testing.T) {
 		{
 			name:  "non-raw message value",
 			input: Data{present: true, value: map[string]string{}},
-			want:  false, // IsZero only checks nil or zero-length RawMessage
+			want:  false,
+		},
+		{
+			name:  "empty data",
+			input: Data{},
+			want:  true,
 		},
 	}
 	for _, tt := range tests {
