@@ -38,7 +38,7 @@ var ErrUnknownScheme = errors.New("unknown scheme in uri")
 // The cancel function may be used to stop the current [*StreamServer].
 type Binder interface {
 	// Called on new connections or new http requests
-	Bind(context.Context, *StreamServer, context.CancelCauseFunc)
+	Bind(context.Context, *RequestServer, context.CancelCauseFunc)
 }
 
 // Server allows for listening for new connections and serving them with the given handler.

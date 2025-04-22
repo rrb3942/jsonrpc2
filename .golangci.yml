@@ -96,6 +96,8 @@ linters:
         - ts
         - b
         - t
+        - e
+        - d
       ignore-decls:
         - ln net.Listener
         - t testing.T
