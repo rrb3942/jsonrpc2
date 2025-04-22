@@ -61,8 +61,6 @@ type Server struct {
 	HTTPReadTimeout time.Duration
 	// Graceful shutdown timeout if serving HTTP
 	HTTPShutdownTimeout time.Duration
-	// Max body size if serving HTTP
-	HTTPMaxBytes int64
 	// Number of go routines to service a packet listener. Defaults to min(runtime.NumCPU(), runtime.GOMAXPROCS())
 	PacketRoutines int
 }
@@ -152,7 +150,6 @@ func (s *Server) listenAndServeHTTP(ctx context.Context, uri *url.URL) error {
 	handler.Binder = s.Binder
 	handler.NewDecoder = s.NewDecoder
 	handler.NewEncoder = s.NewEncoder
-	handler.MaxBytes = s.HTTPMaxBytes
 
 	httpMux.Handle(uri.Path, handler)
 
