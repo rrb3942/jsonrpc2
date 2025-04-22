@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +60,8 @@ type Server struct {
 	HTTPShutdownTimeout time.Duration
 	// Max body size if serving HTTP
 	HTTPMaxBytes int64
+	// Number of go routines to service a packet listener. Defaults to min(runtime.NumCPU(), runtime.GOMAXPROCS())
+	PacketRoutines int
 }
 
 // NewServer returns a new [*Server] that uses handler as the default [Handler].
@@ -72,6 +75,7 @@ func NewServer(handler Handler) *Server {
 	server.NewPacketDecoder = NewPacketDecoder
 	server.HTTPReadTimeout = time.Duration(DefaultHTTPReadTimeout) * time.Second
 	server.HTTPShutdownTimeout = time.Duration(DefaultHTTPShutdownTimeout) * time.Second
+	server.PacketRoutines = min(runtime.NumCPU(), runtime.GOMAXPROCS(-1))
 
 	return &server
 }
@@ -221,9 +225,35 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 // [Binder] is not called at all for packet connections.
 //
 // The listener will be closed when the context is cancelled.
-func (s *Server) ServePacket(ctx context.Context, pc net.PacketConn) error {
-	// Create a new packet server
-	rpcServer := NewPacketServer(s.NewPacketDecoder(pc), s.NewPacketEncoder(pc), s.handler)
-	// And run it
-	return rpcServer.Run(ctx)
+func (s *Server) ServePacket(ctx context.Context, packetConn net.PacketConn) error {
+	errs := make(chan error, s.PacketRoutines)
+
+	var wg sync.WaitGroup
+
+	for range s.PacketRoutines {
+		wg.Add(1)
+
+		go func(gctx context.Context, ch chan<- error) {
+			defer wg.Done()
+			// Create a new packet server
+			rpcServer := NewPacketServer(s.NewPacketDecoder(packetConn), s.NewPacketEncoder(packetConn), s.handler)
+
+			// Add packet server to context
+			pctx := context.WithValue(gctx, CtxPacketServer, rpcServer)
+
+			// And run it
+			ch <- rpcServer.Run(pctx)
+		}(ctx, errs)
+	}
+
+	wg.Wait()
+	close(errs)
+
+	var err error
+
+	for e := range errs {
+		err = errors.Join(err, e)
+	}
+
+	return err
 }
