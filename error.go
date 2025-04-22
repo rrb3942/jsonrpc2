@@ -61,8 +61,8 @@ func (e *Error) Message() string {
 }
 
 // Data returns the data present in the error.
-func (e *Error) Data() ErrorData {
-	return e.err.Data
+func (e *Error) Data() *ErrorData {
+	return &e.err.Data
 }
 
 // WithData returns a copy of the current [Error] with its Data field set to data.
