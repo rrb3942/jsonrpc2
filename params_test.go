@@ -9,6 +9,7 @@ import (
 
 func TestNewParamsArray(t *testing.T) {
 	t.Parallel()
+
 	arr := []int{1, 2, 3}
 	params := NewParamsArray(arr)
 
@@ -23,6 +24,7 @@ func TestNewParamsArray(t *testing.T) {
 
 func TestNewParamsObj(t *testing.T) {
 	t.Parallel()
+
 	obj := map[string]string{"key": "value"}
 	params := NewParamsObj(obj)
 
@@ -37,6 +39,7 @@ func TestNewParamsObj(t *testing.T) {
 
 func TestNewParamsRaw(t *testing.T) {
 	t.Parallel()
+
 	raw := json.RawMessage(`[1, "test"]`)
 	params := NewParamsRaw(raw)
 
@@ -63,6 +66,7 @@ func TestNewParamsRaw(t *testing.T) {
 
 func TestParams_RawMessage(t *testing.T) {
 	t.Parallel()
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name   string
 		params Params
@@ -74,9 +78,9 @@ func TestParams_RawMessage(t *testing.T) {
 		{"Zero Value", Params{}, nil},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			if got := tt.params.RawMessage(); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Params.RawMessage() = %v, want %v", got, tt.want)
 			}
@@ -86,6 +90,7 @@ func TestParams_RawMessage(t *testing.T) {
 
 func TestParams_TypeHint(t *testing.T) {
 	t.Parallel()
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name   string
 		params Params
@@ -100,9 +105,9 @@ func TestParams_TypeHint(t *testing.T) {
 		{"Zero Value", Params{}, TypeNotJSON},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			if got := tt.params.TypeHint(); got != tt.want {
 				t.Errorf("Params.TypeHint() = %v, want %v", got, tt.want)
 			}
@@ -112,11 +117,13 @@ func TestParams_TypeHint(t *testing.T) {
 
 func TestParams_Unmarshal(t *testing.T) {
 	t.Parallel()
+
 	type testStruct struct {
-		A int    `json:"a"`
 		B string `json:"b"`
+		A int    `json:"a"`
 	}
 
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name    string
 		params  Params
@@ -140,13 +147,13 @@ func TestParams_Unmarshal(t *testing.T) {
 			name:    "Unmarshal Wrong Type",
 			params:  Params{value: json.RawMessage(`{"a": "not a number"}`)},
 			target:  &testStruct{},
-			wantErr: ErrDecoding, // Underlying json.Unmarshal error
+			wantErr: &json.UnmarshalTypeError{}, // Underlying json.Unmarshal error
 		},
 		{
 			name:    "Unmarshal Invalid JSON",
 			params:  Params{value: json.RawMessage(`{invalid`)},
 			target:  &testStruct{},
-			wantErr: ErrDecoding, // Underlying json.Unmarshal error
+			wantErr: &json.SyntaxError{}, // Underlying json.Unmarshal error
 		},
 		{
 			name:    "Not RawMessage",
@@ -168,23 +175,45 @@ func TestParams_Unmarshal(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			err := tt.params.Unmarshal(tt.target)
 
+			//nolint:nestif //Testing logic can get complicated
 			if tt.wantErr != nil {
 				if err == nil {
 					t.Fatalf("Params.Unmarshal() error = %v, wantErr %v", err, tt.wantErr)
 				}
-				// Use errors.Is for wrapped errors like ErrDecoding
+
 				if !errors.Is(err, tt.wantErr) {
+					// json.SyntaxError is annoying to test
+					synErr := &json.SyntaxError{}
+					syntaxError := &json.SyntaxError{}
+
+					if errors.As(tt.wantErr, &syntaxError) {
+						if errors.As(err, &synErr) {
+							return
+						}
+					}
+
+					// json.UnmarshalTypeError is annoying to test
+					marErr := &json.UnmarshalTypeError{}
+					unmarshalTypeError := &json.UnmarshalTypeError{}
+
+					if errors.As(tt.wantErr, &unmarshalTypeError) {
+						if errors.As(err, &marErr) {
+							return
+						}
+					}
+
 					t.Fatalf("Params.Unmarshal() error = %v, wantErr %v", err, tt.wantErr)
 				}
 			} else {
 				if err != nil {
 					t.Fatalf("Params.Unmarshal() unexpected error = %v", err)
 				}
+
 				if !reflect.DeepEqual(tt.target, tt.want) {
 					t.Errorf("Params.Unmarshal() got = %v, want %v", tt.target, tt.want)
 				}
@@ -195,6 +224,7 @@ func TestParams_Unmarshal(t *testing.T) {
 
 func TestParams_IsZero(t *testing.T) {
 	t.Parallel()
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name   string
 		params Params
@@ -208,9 +238,9 @@ func TestParams_IsZero(t *testing.T) {
 		{"Non-RawMessage Value", Params{value: []int{}}, false}, // Non-raw is never zero by this definition
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			if got := tt.params.IsZero(); got != tt.want {
 				t.Errorf("Params.IsZero() = %v, want %v", got, tt.want)
 			}
@@ -220,6 +250,7 @@ func TestParams_IsZero(t *testing.T) {
 
 func TestParams_UnmarshalJSON(t *testing.T) {
 	t.Parallel()
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name    string
 		data    []byte
@@ -230,17 +261,17 @@ func TestParams_UnmarshalJSON(t *testing.T) {
 		{"Valid Array", []byte(`[1, 2, 3]`), Params{value: json.RawMessage(`[1, 2, 3]`)}, nil},
 		{"Empty Object", []byte(`{}`), Params{value: json.RawMessage(`{}`)}, nil},
 		{"Empty Array", []byte(`[]`), Params{value: json.RawMessage(`[]`)}, nil},
-		{"Invalid JSON", []byte(`{invalid`), Params{}, ErrDecoding},
+		{"Invalid JSON", []byte(`{invalid`), Params{}, &json.SyntaxError{}}, // Invalid json never makes to internal unmarshal
 		{"Not Object or Array (String)", []byte(`"string"`), Params{}, errInvalidParamDecode},
 		{"Not Object or Array (Number)", []byte(`123`), Params{}, errInvalidParamDecode},
 		{"Not Object or Array (Null)", []byte(`null`), Params{}, errInvalidParamDecode},
 		{"Not Object or Array (Bool)", []byte(`true`), Params{}, errInvalidParamDecode},
-		{"Empty Data", []byte(``), Params{}, errInvalidParamDecode}, // Needs '{' or '['
+		{"Empty Data", []byte(``), Params{}, &json.SyntaxError{}}, // Invalid json never makes it to internal unmarshal
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			var p Params
 			err := json.Unmarshal(tt.data, &p)
 
@@ -248,12 +279,19 @@ func TestParams_UnmarshalJSON(t *testing.T) {
 				if err == nil {
 					t.Fatalf("UnmarshalJSON error = %v, wantErr %v", err, tt.wantErr)
 				}
+
 				if !errors.Is(err, tt.wantErr) {
-					// Handle specific wrapped error case
-					if !(errors.Is(err, ErrDecoding) && errors.Is(tt.wantErr, ErrDecoding)) &&
-						!(errors.Is(err, errInvalidParamDecode) && errors.Is(tt.wantErr, errInvalidParamDecode)) {
-						t.Fatalf("UnmarshalJSON error type = %T, wantErr type %T (%v vs %v)", err, tt.wantErr, err, tt.wantErr)
+					// json.SyntaxError is annoying to test
+					synErr := &json.SyntaxError{}
+					syntaxError := &json.SyntaxError{}
+
+					if errors.As(tt.wantErr, &syntaxError) {
+						if errors.As(err, &synErr) {
+							return
+						}
 					}
+
+					t.Fatalf("UnmarshalJSON error type = %T, wantErr type %T (%v vs %v)", err, tt.wantErr, err, tt.wantErr)
 				}
 			} else {
 				if err != nil {
@@ -262,6 +300,7 @@ func TestParams_UnmarshalJSON(t *testing.T) {
 				// Compare internal value directly for simplicity
 				gotRaw, gotOk := p.value.(json.RawMessage)
 				wantRaw, wantOk := tt.want.value.(json.RawMessage)
+
 				if gotOk != wantOk || string(gotRaw) != string(wantRaw) {
 					t.Errorf("UnmarshalJSON got = %v, want %v", p, tt.want)
 				}
@@ -272,6 +311,7 @@ func TestParams_UnmarshalJSON(t *testing.T) {
 
 func TestParams_MarshalJSON(t *testing.T) {
 	t.Parallel()
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name    string
 		params  Params
@@ -288,14 +328,15 @@ func TestParams_MarshalJSON(t *testing.T) {
 		{"Unsupported Type", Params{value: make(chan int)}, nil, true},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := json.Marshal(tt.params)
+
+			got, err := json.Marshal(&tt.params)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("MarshalJSON() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
+
 			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("MarshalJSON() got = %s, want %s", got, tt.want)
 			}
