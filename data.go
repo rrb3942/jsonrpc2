@@ -12,7 +12,8 @@ var ErrEmptyData = errors.New("data is empty")
 //
 // If a [json.RawMessage] is stored internally, it is directly used for marshaling.
 type Data struct {
-	value any
+	value   any
+	present bool
 }
 
 // RawMessage returns [json.RawMessage] stored internally if present.
@@ -63,6 +64,10 @@ func (d *Data) Unmarshal(v any) error {
 
 // IsZero returns true if the underlying value is nil or zero length [json.RawMessage].
 func (d *Data) IsZero() bool {
+	if !d.present {
+		return true
+	}
+
 	if d.value == nil {
 		return true
 	}
@@ -81,7 +86,10 @@ func (d *Data) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w (%w)", ErrDecoding, err)
 	}
 
-	d.value = raw
+	if len(raw) != 0 {
+		d.value = raw
+		d.present = true
+	}
 
 	return nil
 }

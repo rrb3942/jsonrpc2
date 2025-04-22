@@ -7,5 +7,5 @@ type ErrorData = Data
 //
 // See [Data] for how values are handled.
 func NewErrorData(v any) ErrorData {
-	return ErrorData{value: v}
+	return ErrorData{present: true, value: v}
 }

@@ -7,5 +7,5 @@ type Result = Data
 //
 // See [Data] for how values are handled.
 func NewResult(v any) Result {
-	return Result{value: v}
+	return Result{present: true, value: v}
 }

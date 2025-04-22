@@ -16,17 +16,17 @@ func TestData_RawMessage(t *testing.T) {
 	}{
 		{
 			name:  "with raw message",
-			input: Data{value: json.RawMessage(`{"key":"value"}`)},
+			input: Data{present: true, value: json.RawMessage(`{"key":"value"}`)},
 			want:  json.RawMessage(`{"key":"value"}`),
 		},
 		{
 			name:  "with non-raw message",
-			input: Data{value: map[string]string{"key": "value"}},
+			input: Data{present: true, value: map[string]string{"key": "value"}},
 			want:  nil,
 		},
 		{
 			name:  "with nil value",
-			input: Data{value: nil},
+			input: Data{present: true, value: nil},
 			want:  nil,
 		},
 	}
@@ -48,17 +48,17 @@ func TestData_Value(t *testing.T) {
 	}{
 		{
 			name:  "raw message",
-			input: Data{value: json.RawMessage(`[1, 2, 3]`)},
+			input: Data{present: true, value: json.RawMessage(`[1, 2, 3]`)},
 			want:  json.RawMessage(`[1, 2, 3]`),
 		},
 		{
 			name:  "map",
-			input: Data{value: map[string]int{"a": 1}},
+			input: Data{present: true, value: map[string]int{"a": 1}},
 			want:  map[string]int{"a": 1},
 		},
 		{
 			name:  "nil",
-			input: Data{value: nil},
+			input: Data{present: true, value: nil},
 			want:  nil,
 		},
 	}
@@ -80,47 +80,47 @@ func TestData_TypeHint(t *testing.T) {
 	}{
 		{
 			name:  "object",
-			input: Data{value: json.RawMessage(`{"key":"value"}`)},
+			input: Data{present: true, value: json.RawMessage(`{"key":"value"}`)},
 			want:  TypeObject,
 		},
 		{
 			name:  "array",
-			input: Data{value: json.RawMessage(`[1, 2, 3]`)},
+			input: Data{present: true, value: json.RawMessage(`[1, 2, 3]`)},
 			want:  TypeArray,
 		},
 		{
 			name:  "empty raw message",
-			input: Data{value: json.RawMessage("")},
+			input: Data{present: true, value: json.RawMessage("")},
 			want:  TypeEmpty,
 		},
 		{
 			name:  "null raw message",
-			input: Data{value: json.RawMessage("null")},
+			input: Data{present: true, value: json.RawMessage("null")},
 			want:  TypeNull,
 		},
 		{
 			name:  "string raw message",
-			input: Data{value: json.RawMessage(`"string"`)},
+			input: Data{present: true, value: json.RawMessage(`"string"`)},
 			want:  TypeString,
 		},
 		{
 			name:  "number raw message",
-			input: Data{value: json.RawMessage(`123`)},
+			input: Data{present: true, value: json.RawMessage(`123`)},
 			want:  TypeNumber,
 		},
 		{
 			name:  "bool raw message",
-			input: Data{value: json.RawMessage(`true`)},
+			input: Data{present: true, value: json.RawMessage(`true`)},
 			want:  TypeBool,
 		},
 		{
 			name:  "non-raw message",
-			input: Data{value: map[string]string{"key": "value"}},
+			input: Data{present: true, value: map[string]string{"key": "value"}},
 			want:  TypeNotJSON,
 		},
 		{
 			name:  "nil value",
-			input: Data{value: nil},
+			input: Data{present: true, value: nil},
 			want:  TypeNotJSON, // nil is not json.RawMessage
 		},
 	}
@@ -148,33 +148,33 @@ func TestData_Unmarshal(t *testing.T) {
 	}{
 		{
 			name:   "unmarshal object to struct",
-			input:  Data{value: json.RawMessage(`{"key":"value"}`)},
+			input:  Data{present: true, value: json.RawMessage(`{"key":"value"}`)},
 			target: &testStruct{},
 			want:   &testStruct{Key: "value"},
 		},
 		{
 			name:   "unmarshal array to slice",
-			input:  Data{value: json.RawMessage(`[1, 2, 3]`)},
+			input:  Data{present: true, value: json.RawMessage(`[1, 2, 3]`)},
 			target: &[]int{},
 			want:   &[]int{1, 2, 3},
 		},
 		{
 			name:    "unmarshal from nil value",
-			input:   Data{value: nil},
+			input:   Data{present: true, value: nil},
 			target:  &testStruct{},
 			want:    &testStruct{}, // Target should be untouched
 			wantErr: ErrEmptyData,
 		},
 		{
 			name:    "unmarshal from non-raw message",
-			input:   Data{value: map[string]string{"key": "value"}},
+			input:   Data{present: true, value: map[string]string{"key": "value"}},
 			target:  &testStruct{},
 			want:    &testStruct{}, // Target should be untouched
 			wantErr: ErrNotRawMessage,
 		},
 		{
 			name:    "unmarshal invalid json",
-			input:   Data{value: json.RawMessage(`{invalid`)},
+			input:   Data{present: true, value: json.RawMessage(`{invalid`)},
 			target:  &testStruct{},
 			want:    &testStruct{},       // Target might be partially modified or zeroed by json decoder
 			wantErr: &json.SyntaxError{}, // Expecting a json error
@@ -211,22 +211,22 @@ func TestData_IsZero(t *testing.T) {
 	}{
 		{
 			name:  "nil value",
-			input: Data{value: nil},
+			input: Data{present: true, value: nil},
 			want:  true,
 		},
 		{
 			name:  "empty raw message",
-			input: Data{value: json.RawMessage("")},
+			input: Data{present: true, value: json.RawMessage("")},
 			want:  true,
 		},
 		{
 			name:  "non-empty raw message",
-			input: Data{value: json.RawMessage(`{}`)},
+			input: Data{present: true, value: json.RawMessage(`{}`)},
 			want:  false,
 		},
 		{
 			name:  "non-raw message value",
-			input: Data{value: map[string]string{}},
+			input: Data{present: true, value: map[string]string{}},
 			want:  false, // IsZero only checks nil or zero-length RawMessage
 		},
 	}
@@ -250,17 +250,17 @@ func TestData_UnmarshalJSON(t *testing.T) {
 		{
 			name:  "valid object",
 			input: []byte(`{"key":"value"}`),
-			want:  Data{value: json.RawMessage(`{"key":"value"}`)},
+			want:  Data{present: true, value: json.RawMessage(`{"key":"value"}`)},
 		},
 		{
 			name:  "valid array",
 			input: []byte(`[1, 2, 3]`),
-			want:  Data{value: json.RawMessage(`[1, 2, 3]`)},
+			want:  Data{present: true, value: json.RawMessage(`[1, 2, 3]`)},
 		},
 		{
 			name:  "valid null",
 			input: []byte(`null`),
-			want:  Data{value: json.RawMessage(`null`)},
+			want:  Data{present: true, value: json.RawMessage(`null`)},
 		},
 		{
 			name:    "invalid json",
@@ -300,32 +300,32 @@ func TestData_MarshalJSON(t *testing.T) {
 	}{
 		{
 			name:  "raw message object",
-			input: Data{value: json.RawMessage(`{"key":"value"}`)},
+			input: Data{present: true, value: json.RawMessage(`{"key":"value"}`)},
 			want:  []byte(`{"key":"value"}`),
 		},
 		{
 			name:  "raw message array",
-			input: Data{value: json.RawMessage(`[1, 2, 3]`)},
+			input: Data{present: true, value: json.RawMessage(`[1, 2, 3]`)},
 			want:  []byte(`[1,2,3]`),
 		},
 		{
 			name:  "map value",
-			input: Data{value: map[string]int{"a": 1}},
+			input: Data{present: true, value: map[string]int{"a": 1}},
 			want:  []byte(`{"a":1}`),
 		},
 		{
 			name:  "struct value",
-			input: Data{value: struct{ Name string }{Name: "test"}},
+			input: Data{present: true, value: struct{ Name string }{Name: "test"}},
 			want:  []byte(`{"Name":"test"}`),
 		},
 		{
 			name:  "nil value",
-			input: Data{value: nil},
+			input: Data{present: true, value: nil},
 			want:  []byte(`null`),
 		},
 		{
 			name:    "unmarshalable value", // e.g., channel
-			input:   Data{value: make(chan int)},
+			input:   Data{present: true, value: make(chan int)},
 			wantErr: true,
 		},
 	}
