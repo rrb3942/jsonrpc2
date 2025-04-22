@@ -7,11 +7,11 @@ import (
 type Notification Request
 
 func NewNotification(method string) *Notification {
-	return &Notification{Method: method, ID: NewNullID()}
+	return &Notification{Method: method}
 }
 
 func NewNotificationWithParams(method string, p Params) *Notification {
-	return &Notification{Method: method, ID: NewNullID(), Params: p}
+	return &Notification{Method: method, Params: p}
 }
 
 // AsRequest returns the [Notification] as a [*Request].
