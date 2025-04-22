@@ -72,6 +72,10 @@ func (e *Error) WithData(data any) Error {
 
 // Returns true if t is of type [Error] and their Code fields match.
 func (e Error) Is(t error) bool {
+	if jerr, ok := t.(Error); ok {
+		return e.err.Code == jerr.err.Code
+	}
+
 	if jerr, ok := t.(*Error); ok {
 		return e.err.Code == jerr.err.Code
 	}
