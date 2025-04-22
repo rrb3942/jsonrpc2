@@ -26,10 +26,10 @@ func NewParamsArray[V any, P ~[]V](v P) Params {
 	return Params{value: v}
 }
 
-// NewParamsObj returns a new [Params] with its value set to v.
+// NewParamsObject returns a new [Params] with its value set to v.
 //
 // v must be a map type.
-func NewParamsObj[K comparable, V any, P ~map[K]V](v P) Params {
+func NewParamsObject[K comparable, V any, P ~map[K]V](v P) Params {
 	return Params{value: v}
 }
 

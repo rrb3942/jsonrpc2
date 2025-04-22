@@ -22,14 +22,14 @@ func TestNewParamsArray(t *testing.T) {
 	}
 }
 
-func TestNewParamsObj(t *testing.T) {
+func TestNewParamsObject(t *testing.T) {
 	t.Parallel()
 
 	obj := map[string]string{"key": "value"}
-	params := NewParamsObj(obj)
+	params := NewParamsObject(obj)
 
 	if params.value == nil {
-		t.Fatal("NewParamsObj resulted in nil value")
+		t.Fatal("NewParamsObject resulted in nil value")
 	}
 
 	if !reflect.DeepEqual(params.value, obj) {
@@ -321,7 +321,7 @@ func TestParams_MarshalJSON(t *testing.T) {
 		{"From Raw Object", Params{value: json.RawMessage(`{"a":1}`)}, []byte(`{"a":1}`), false},
 		{"From Raw Array", Params{value: json.RawMessage(`[1,2]`)}, []byte(`[1,2]`), false},
 		{"From Go Slice", NewParamsArray([]int{1, 2, 3}), []byte(`[1,2,3]`), false},
-		{"From Go Map", NewParamsObj(map[string]int{"a": 1}), []byte(`{"a":1}`), false},
+		{"From Go Map", NewParamsObject(map[string]int{"a": 1}), []byte(`{"a":1}`), false},
 		{"Nil Value", Params{value: nil}, []byte(`null`), false},
 		{"Zero Value", Params{}, []byte(`null`), false},
 		// Add a test case that might cause marshaling error if needed, e.g., channel
