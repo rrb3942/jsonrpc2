@@ -9,10 +9,10 @@ import (
 	"sync"
 )
 
-// RequestServer represents a single jsonrpc2 server.
+// RPCServer represents a single jsonrpc2 server that handles rpc requests and notifications.
 //
-// All requests handled by the RequestServer will have the context key [CtxRequestServer] so to the current [*RequestServer].
-type RequestServer struct {
+// All requests handled by the RPCServer will have the context key [CtxRPCServer] so to the current [*RPCServer].
+type RPCServer struct {
 	Callbacks Callbacks
 	decoder   PacketDecoder
 	Handler   Handler
@@ -26,7 +26,7 @@ type RequestServer struct {
 	WaitOnClose bool
 }
 
-func newRequestServer(d, e any, handler Handler) *RequestServer {
+func newRPCServer(d, e any, handler Handler) *RPCServer {
 	var dec PacketDecoder
 
 	var enc PacketEncoder
@@ -45,41 +45,41 @@ func newRequestServer(d, e any, handler Handler) *RequestServer {
 		enc = v
 	}
 
-	rp := &RequestServer{decoder: dec, encoder: enc, Handler: handler}
+	rp := &RPCServer{decoder: dec, encoder: enc, Handler: handler}
 	rp.Callbacks.OnHandlerPanic = DefaultOnHandlerPanic
 
 	return rp
 }
 
-// NewStreamServer returns a new [*RequestServer] with a [Handler] of handle.
+// NewStreamServer returns a new [*RPCServer] with a [Handler] of handle.
 //
 // It operates over streaming streaming connections.
-func NewStreamServer(d Decoder, e Encoder, handler Handler) *RequestServer {
-	return newRequestServer(d, e, handler)
+func NewStreamServer(d Decoder, e Encoder, handler Handler) *RPCServer {
+	return newRPCServer(d, e, handler)
 }
 
-// NewStreamServerFromIO returns a new [*RequestServer] with a [Handler] of handle.
+// NewStreamServerFromIO returns a new [*RPCServer] with a [Handler] of handle.
 //
 // rw will be wrapped with default encoders and decoders as returned by [NewDecoder] and [NewEncoder].
-func NewStreamServerFromIO(rw io.ReadWriter, handler Handler) *RequestServer {
+func NewStreamServerFromIO(rw io.ReadWriter, handler Handler) *RPCServer {
 	return NewStreamServer(NewDecoder(rw), NewEncoder(rw), handler)
 }
 
-// NewPacketServer returns a new [*RequestServer] with a [Handler] of handle.
+// NewPacketServer returns a new [*RPCServer] with a [Handler] of handle.
 //
 // It operates over connectionless packet sockets.
-func NewPacketServer(d PacketDecoder, e PacketEncoder, handler Handler) *RequestServer {
-	return newRequestServer(d, e, handler)
+func NewPacketServer(d PacketDecoder, e PacketEncoder, handler Handler) *RPCServer {
+	return newRPCServer(d, e, handler)
 }
 
-// NewRequestServer returns a new [*RequestServer] with a [Handler] of handle.
+// NewRPCServer returns a new [*RPCServer] with a [Handler] of handle.
 //
 // rw will be wrapped with default encoders and decoders as returned by [NewPacketDecoder] and [NewPacketEncoder].
-func NewRequestServerFromPacket(rw net.PacketConn, handler Handler) *RequestServer {
+func NewRPCServerFromPacket(rw net.PacketConn, handler Handler) *RPCServer {
 	return NewPacketServer(NewPacketDecoder(rw), NewPacketEncoder(rw), handler)
 }
 
-func (rp *RequestServer) runRequest(ctx context.Context, r json.RawMessage, from net.Addr) {
+func (rp *RPCServer) runRequest(ctx context.Context, r json.RawMessage, from net.Addr) {
 	if resp := handleRequest(ctx, rp.Handler, rp.decoder, &rp.Callbacks, r); resp != nil {
 		if err := rp.encoder.EncodeTo(ctx, resp, from); err != nil {
 			rp.Callbacks.runOnEncodingError(ctx, resp, err)
@@ -87,7 +87,7 @@ func (rp *RequestServer) runRequest(ctx context.Context, r json.RawMessage, from
 	}
 }
 
-func (rp *RequestServer) runRequests(ctx context.Context, raw json.RawMessage, from net.Addr) {
+func (rp *RPCServer) runRequests(ctx context.Context, raw json.RawMessage, from net.Addr) {
 	var objs []json.RawMessage
 
 	var resps []any
@@ -154,7 +154,7 @@ func (rp *RequestServer) runRequests(ctx context.Context, raw json.RawMessage, f
 	}
 }
 
-func (rp *RequestServer) run(ctx context.Context, buf json.RawMessage, from net.Addr) {
+func (rp *RPCServer) run(ctx context.Context, buf json.RawMessage, from net.Addr) {
 	ctx = context.WithValue(ctx, CtxFromAddr, from)
 
 	switch jsonHintType(buf) {
@@ -167,7 +167,7 @@ func (rp *RequestServer) run(ctx context.Context, buf json.RawMessage, from net.
 	}
 }
 
-func (rp *RequestServer) Close() error {
+func (rp *RPCServer) Close() error {
 	var err error
 
 	if dc, ok := rp.decoder.(io.Closer); ok {
@@ -182,7 +182,7 @@ func (rp *RequestServer) Close() error {
 }
 
 // Run runs the server until ctx is cancelled or the connection is broken.
-func (rp *RequestServer) Run(ctx context.Context) (err error) {
+func (rp *RPCServer) Run(ctx context.Context) (err error) {
 	var wg sync.WaitGroup
 
 	sctx, stop := context.WithCancel(ctx)

@@ -24,8 +24,8 @@ const (
 	CtxHTTPRequest
 	// Key for underlying from addr on packet servers.
 	CtxFromAddr
-	// Key for parent RequestServer.
-	CtxRequestServer
+	// Key for parent RPCServer.
+	CtxRPCServer
 
 	// Default header read timeout when listening on an http.Server.
 	DefaultHTTPReadTimeout = 5
@@ -35,17 +35,17 @@ const (
 
 var ErrUnknownScheme = errors.New("unknown scheme in uri")
 
-// Binder is used to configure a [*RequestServer] before it has started.
-// It is called whenever a new [*RequestServer] is created.
+// Binder is used to configure a [*RPCServer] before it has started.
+// It is called whenever a new [*RPCServer] is created.
 //
-// The cancel function may be used to stop the current [*RequestServer].
+// The cancel function may be used to stop the current [*RPCServer].
 type Binder interface {
 	// Called on new connections or new http requests
-	Bind(context.Context, *RequestServer, context.CancelCauseFunc)
+	Bind(context.Context, *RPCServer, context.CancelCauseFunc)
 }
 
 // Server allows for listening for new connections and serving them with the given handler.
-// Each connection is run in its own [*RequestServer] and go-routine.
+// Each connection is run in its own [*RPCServer] and go-routine.
 //
 // For connection oriented servers, the context key of [CtxNetConn] is set with the accepted [net.Conn].
 //
@@ -206,7 +206,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 			/* New Connection, create a backend for it */
 			rpcServer := NewStreamServer(s.NewDecoder(conn), s.NewEncoder(conn), server.handler)
 
-			cctx, nstop := context.WithCancelCause(context.WithValue(context.WithValue(nctx, CtxNetConn, conn), CtxRequestServer, rpcServer))
+			cctx, nstop := context.WithCancelCause(context.WithValue(context.WithValue(nctx, CtxNetConn, conn), CtxRPCServer, rpcServer))
 			defer nstop(nil)
 
 			if s.Binder != nil {
@@ -223,7 +223,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 //
 // It is safe to call ServePacket multiple times with different listeners.
 //
-// [Binder] is called for each [*RequestServer] spawned to serve the [net.PacketConn].
+// [Binder] is called for each [*RPCServer] spawned to serve the [net.PacketConn].
 //
 // The listener will be closed when the context is cancelled.
 func (s *Server) ServePacket(ctx context.Context, packetConn net.PacketConn) error {
@@ -245,7 +245,7 @@ func (s *Server) ServePacket(ctx context.Context, packetConn net.PacketConn) err
 			rpcServer := NewPacketServer(s.NewPacketDecoder(packetConn), s.NewPacketEncoder(packetConn), s.handler)
 
 			// Add packet server to context
-			pctx := context.WithValue(gctx, CtxRequestServer, rpcServer)
+			pctx := context.WithValue(gctx, CtxRPCServer, rpcServer)
 
 			if s.Binder != nil {
 				s.Binder.Bind(pctx, rpcServer, stop)

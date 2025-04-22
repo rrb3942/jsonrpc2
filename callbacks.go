@@ -11,9 +11,9 @@ var DefaultOnHandlerPanic = func(ctx context.Context, req *Request, rec any) {
 	slog.ErrorContext(ctx, "Panic in handler", "Request", req, "Panic", rec)
 }
 
-// Callbacks contains functions to run at on various events in a [RequestServer].
+// Callbacks contains functions to run at on various events in a [RPCServer].
 //
-// Callbacks must not modify the [RequestServer] in any way  when called. It is only provided for inspection.
+// Callbacks must not modify the [RPCServer] in any way  when called. It is only provided for inspection.
 type Callbacks struct {
 	// Run when the server returns from Run. Returns any error associated with the close (io.EOF, context.Canceled, etc)
 	OnExit func(context.Context, error)
