@@ -16,12 +16,15 @@ func TestNewError(t *testing.T) {
 	if !err.present {
 		t.Error("Expected error to be present")
 	}
+
 	if err.err.Code != code {
 		t.Errorf("Expected code %d, got %d", code, err.err.Code)
 	}
+
 	if err.err.Message != msg {
 		t.Errorf("Expected message %q, got %q", msg, err.err.Message)
 	}
+
 	if !err.err.Data.IsZero() {
 		t.Errorf("Expected data to be zero, but got %v", err.err.Data)
 	}
@@ -36,23 +39,23 @@ func TestNewErrorWithData(t *testing.T) {
 	if !err.present {
 		t.Error("Expected error to be present")
 	}
+
 	if err.err.Code != code {
 		t.Errorf("Expected code %d, got %d", code, err.err.Code)
 	}
+
 	if err.err.Message != msg {
 		t.Errorf("Expected message %q, got %q", msg, err.err.Message)
 	}
 
-	var gotData map[string]string
-	if dataErr := err.err.Data.Unmarshal(&gotData); dataErr != nil {
-		t.Fatalf("Failed to unmarshal error data: %v", dataErr)
-	}
+	gotData := err.Data().Value()
 	if !reflect.DeepEqual(gotData, data) {
 		t.Errorf("Expected data %v, got %v", data, gotData)
 	}
 }
 
 func TestAsError(t *testing.T) {
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
 		name     string
 		inputErr error
@@ -90,22 +93,18 @@ func TestAsError(t *testing.T) {
 			if gotErr.Code() != tt.wantCode {
 				t.Errorf("asError(%v) code = %d; want %d", tt.inputErr, gotErr.Code(), tt.wantCode)
 			}
+
 			if gotErr.Message() != tt.wantMsg {
 				t.Errorf("asError(%v) message = %q; want %q", tt.inputErr, gotErr.Message(), tt.wantMsg)
 			}
 
 			if tt.wantData != "" {
-				var dataStr string
-				if err := gotErr.Data().Unmarshal(&dataStr); err != nil {
-					t.Fatalf("Failed to unmarshal data: %v", err)
+				gotData := gotErr.Data().Value()
+				if !reflect.DeepEqual(gotData, tt.wantData) {
+					t.Errorf("asError(%v) data = %q; want %q", tt.inputErr, gotData, tt.wantData)
 				}
-				if dataStr != tt.wantData {
-					t.Errorf("asError(%v) data = %q; want %q", tt.inputErr, dataStr, tt.wantData)
-				}
-			} else {
-				if !gotErr.Data().IsZero() {
-					t.Errorf("asError(%v) expected zero data, got %v", tt.inputErr, gotErr.Data())
-				}
+			} else if !gotErr.Data().IsZero() {
+				t.Errorf("asError(%v) expected zero data, got %v", tt.inputErr, gotErr.Data())
 			}
 		})
 	}
@@ -134,11 +133,8 @@ func TestErrorData(t *testing.T) {
 		t.Fatal("Expected data to be non-zero")
 	}
 
-	var gotData string
-	if dataErr := errData.Unmarshal(&gotData); dataErr != nil {
-		t.Fatalf("Failed to unmarshal error data: %v", dataErr)
-	}
-	if gotData != data {
+	gotData := errData.Value()
+	if !reflect.DeepEqual(gotData, data) {
 		t.Errorf("Expected data %q, got %q", data, gotData)
 	}
 }
@@ -157,14 +153,12 @@ func TestErrorWithData(t *testing.T) {
 	if errWithData.Code() != originalErr.Code() {
 		t.Errorf("Expected code %d, got %d", originalErr.Code(), errWithData.Code())
 	}
+
 	if errWithData.Message() != originalErr.Message() {
 		t.Errorf("Expected message %q, got %q", originalErr.Message(), errWithData.Message())
 	}
 
-	var gotData map[string]int
-	if dataErr := errWithData.Data().Unmarshal(&gotData); dataErr != nil {
-		t.Fatalf("Failed to unmarshal error data: %v", dataErr)
-	}
+	gotData := errWithData.Data().Value()
 	if !reflect.DeepEqual(gotData, data) {
 		t.Errorf("Expected data %v, got %v", data, gotData)
 	}
@@ -179,21 +173,27 @@ func TestErrorIs(t *testing.T) {
 	if !errors.Is(err1, &Error{err: RPCError{Code: 100}}) {
 		t.Errorf("Expected err1 to be Error{Code: 100}")
 	}
+
 	if !errors.Is(err2, &Error{err: RPCError{Code: 100}}) {
 		t.Errorf("Expected err2 to be Error{Code: 100}")
 	}
-	if errors.Is(err1, &Error{err: RPCError{Code: 200}}) {
+
+	if errors.Is(err1, Error{err: RPCError{Code: 200}}) {
 		t.Errorf("Expected err1 not to be Error{Code: 200}")
 	}
-	if errors.Is(err3, &Error{err: RPCError{Code: 100}}) {
+
+	if errors.Is(err3, Error{err: RPCError{Code: 100}}) {
 		t.Errorf("Expected err3 not to be Error{Code: 100}")
 	}
+
 	if errors.Is(err1, stdErr) {
 		t.Errorf("Expected err1 not to be a standard error")
 	}
+
 	if !errors.Is(err1, err2) {
 		t.Errorf("Expected err1 Is err2 to be true (same code)")
 	}
+
 	if errors.Is(err1, err3) {
 		t.Errorf("Expected err1 Is err3 to be false (different code)")
 	}
@@ -201,11 +201,13 @@ func TestErrorIs(t *testing.T) {
 
 func TestErrorIsZero(t *testing.T) {
 	var zeroErr Error
+
 	nonZeroErr := NewError(1, "test")
 
 	if !zeroErr.IsZero() {
 		t.Error("Expected zero Error to be zero")
 	}
+
 	if nonZeroErr.IsZero() {
 		t.Error("Expected non-zero Error not to be zero")
 	}
@@ -214,43 +216,45 @@ func TestErrorIsZero(t *testing.T) {
 func TestErrorError(t *testing.T) {
 	msg := "This is the error message"
 	err := NewError(500, msg)
+
 	if err.Error() != msg {
 		t.Errorf("Expected Error() to return %q, got %q", msg, err.Error())
 	}
 }
 
 func TestErrorMarshalUnmarshalJSON(t *testing.T) {
+	//nolint:govet //Do not reorder struct
 	tests := []struct {
-		name    string
-		input   Error
+		name     string
+		input    Error
 		wantJSON string
 	}{
 		{
-			name:    "Simple Error",
-			input:   NewError(-32600, "Invalid Request"),
+			name:     "Simple Error",
+			input:    NewError(-32600, "Invalid Request"),
 			wantJSON: `{"message":"Invalid Request","code":-32600}`,
 		},
 		{
-			name:    "Error with String Data",
-			input:   NewErrorWithData(-32602, "Invalid params", "param 'x' is missing"),
+			name:     "Error with String Data",
+			input:    NewErrorWithData(-32602, "Invalid params", "param 'x' is missing"),
 			wantJSON: `{"data":"param 'x' is missing","message":"Invalid params","code":-32602}`,
 		},
 		{
-			name:    "Error with Object Data",
-			input:   NewErrorWithData(-32000, "Server error", map[string]any{"details": "DB connection failed", "retryable": false}),
+			name:  "Error with Object Data",
+			input: NewErrorWithData(-32000, "Server error", map[string]any{"details": "DB connection failed", "retryable": false}),
 			// Note: map key order isn't guaranteed in JSON
 			// We'll handle this by unmarshalling the expected string too
 		},
 		{
-			name:    "Error with Null Data",
-			input:   NewErrorWithData(-32001, "Custom", nil),
+			name:     "Error with Null Data",
+			input:    NewErrorWithData(-32001, "Custom", nil),
 			wantJSON: `{"data":null,"message":"Custom","code":-32001}`,
 		},
 		{
 			name: "Zero Error (should not marshal)",
 			// A zero error shouldn't really be marshalled on its own,
 			// but testing MarshalJSON directly. It marshals to the zero RPCError.
-			input:   Error{},
+			input:    Error{},
 			wantJSON: `{"message":"","code":0}`,
 		},
 	}
@@ -274,6 +278,7 @@ func TestErrorMarshalUnmarshalJSON(t *testing.T) {
 				if err := json.Unmarshal([]byte(tt.wantJSON), &wantMap); err != nil {
 					t.Fatalf("Failed to unmarshal expected JSON: %v\nJSON: %s", err, tt.wantJSON)
 				}
+
 				if !reflect.DeepEqual(gotMap, wantMap) {
 					t.Errorf("MarshalJSON() got = %s, want %s", string(jsonData), tt.wantJSON)
 				}
@@ -286,14 +291,15 @@ func TestErrorMarshalUnmarshalJSON(t *testing.T) {
 				if code, ok := gotMap["code"].(float64); !ok || code != expectedCode {
 					t.Errorf("Expected code %v, got %v", expectedCode, gotMap["code"])
 				}
+
 				if msg, ok := gotMap["message"].(string); !ok || msg != expectedMsg {
 					t.Errorf("Expected message %q, got %q", expectedMsg, gotMap["message"])
 				}
+
 				if data, ok := gotMap["data"].(map[string]interface{}); !ok || !reflect.DeepEqual(data, expectedData) {
 					t.Errorf("Expected data %v, got %v", expectedData, gotMap["data"])
 				}
 			}
-
 
 			// Test UnmarshalJSON
 			var unmarshaledErr Error
@@ -312,27 +318,27 @@ func TestErrorMarshalUnmarshalJSON(t *testing.T) {
 			if unmarshaledErr.Code() != tt.input.Code() {
 				t.Errorf("UnmarshalJSON code mismatch: got %d, want %d", unmarshaledErr.Code(), tt.input.Code())
 			}
+
 			if unmarshaledErr.Message() != tt.input.Message() {
 				t.Errorf("UnmarshalJSON message mismatch: got %q, want %q", unmarshaledErr.Message(), tt.input.Message())
 			}
+
 			if tt.input.Data().IsZero() {
 				if !unmarshaledErr.Data().IsZero() {
 					t.Errorf("UnmarshalJSON data mismatch: expected zero data, got non-zero")
 				}
 			} else {
 				// Unmarshal both data fields into interfaces for comparison
-				var gotData, wantData any
+				var gotData any
 				if err := unmarshaledErr.Data().Unmarshal(&gotData); err != nil && !errors.Is(err, ErrEmptyData) { // Allow empty data for zero error case
 					t.Fatalf("Failed to unmarshal 'got' data: %v", err)
 				}
-				if err := tt.input.Data().Unmarshal(&wantData); err != nil && !errors.Is(err, ErrEmptyData) {
-					t.Fatalf("Failed to unmarshal 'want' data: %v", err)
-				}
+
+				wantData := tt.input.Data().Value()
 
 				// Handle json.Number comparison if necessary
 				gotData = normalizeJSONNumbers(gotData)
 				wantData = normalizeJSONNumbers(wantData)
-
 
 				if !reflect.DeepEqual(gotData, wantData) {
 					t.Errorf("UnmarshalJSON data mismatch: got %v (%T), want %v (%T)", gotData, gotData, wantData, wantData)
@@ -349,21 +355,25 @@ func normalizeJSONNumbers(data any) any {
 		if i, err := v.Int64(); err == nil {
 			return i
 		}
+
 		if f, err := v.Float64(); err == nil {
 			return f
 		}
+
 		return v.String() // Fallback to string if not int or float
 	case map[string]any:
 		normalizedMap := make(map[string]any, len(v))
 		for key, val := range v {
 			normalizedMap[key] = normalizeJSONNumbers(val)
 		}
+
 		return normalizedMap
 	case []any:
 		normalizedSlice := make([]any, len(v))
 		for i, val := range v {
 			normalizedSlice[i] = normalizeJSONNumbers(val)
 		}
+
 		return normalizedSlice
 	default:
 		return data
@@ -392,11 +402,7 @@ func ExampleError_WithData() {
 
 	fmt.Printf("Code: %d\n", errWithDetails.Code())
 	fmt.Printf("Message: %s\n", errWithDetails.Message())
-
-	var data string
-	if dataErr := errWithDetails.Data().Unmarshal(&data); dataErr == nil {
-		fmt.Printf("Data: %s\n", data)
-	}
+	fmt.Printf("Data: %s\n", errWithDetails.Data().Value())
 
 	// Output:
 	// Code: -32602
