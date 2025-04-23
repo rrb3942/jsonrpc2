@@ -71,6 +71,10 @@ func (h *HTTPHandler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Flush response to client
-	_, _ = buffer.WriteTo(resp)
+	if buffer.Len() > 0 {
+		// Flush response to client
+		_, _ = buffer.WriteTo(resp)
+	} else {
+		resp.WriteHeader(http.StatusNoContent)
+	}
 }
