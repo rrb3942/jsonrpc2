@@ -91,6 +91,8 @@ func (c *Client) Call(ctx context.Context, r *Request) (*Response, error) {
 }
 
 // CallBatch calls a batch of [][*Request] over the configured stream and returns any responses in [][*Response].
+//
+// If the server responds with a single response object it will be wrappped in a Batch of len() == 1.
 func (c *Client) CallBatch(ctx context.Context, r Batch[*Request]) (Batch[*Response], error) {
 	rawResp, err := c.call(ctx, r, false)
 
@@ -100,8 +102,19 @@ func (c *Client) CallBatch(ctx context.Context, r Batch[*Request]) (Batch[*Respo
 
 	resp := NewBatch[*Response](len(r))
 
-	if err := c.d.Unmarshal(rawResp, &resp); err != nil {
-		return nil, err
+	switch jsonHintType(rawResp) {
+	case TypeObject:
+		var sresp *Response
+		if err := c.d.Unmarshal(rawResp, &sresp); err != nil {
+			return nil, err
+		}
+
+		resp.Add(sresp)
+	default:
+		// Array or bust
+		if err := c.d.Unmarshal(rawResp, &resp); err != nil {
+			return nil, err
+		}
 	}
 
 	return resp, nil
