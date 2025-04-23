@@ -74,9 +74,11 @@ func (b *Batch[B]) Contains(id ID) bool {
 //
 // If no elements match, returns -1.
 func (b *Batch[B]) Index(id ID) int {
-	for i, v := range *b {
-		if id.Equal(v.id()) {
-			return i
+	if !id.IsZero() {
+		for i, v := range *b {
+			if id.Equal(v.id()) {
+				return i
+			}
 		}
 	}
 
