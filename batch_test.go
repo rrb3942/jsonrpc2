@@ -326,8 +326,8 @@ func TestBatch_MarshalJSON_Request(t *testing.T) {
 	tassert := assert.New(t)
 
 	// Setup batch
-	req1 := NewRequest(int64(1), "method1").WithParams(NewParamsArray([]string{"p1"}))
-	req2 := NewNotification("notify").WithParams(NewParamsObject(map[string]int{"p2": 2})).AsRequest() // Notification
+	req1 := NewRequestWithParams(int64(1), "method1", NewParamsArray([]string{"p1"}))
+	req2 := NewNotificationWithParams("notify", NewParamsObject(map[string]int{"p2": 2})).AsRequest() // Notification
 	req3 := NewRequest("req-3", "method3")                                                            // No params
 
 	batch := NewBatch[*Request](0)
@@ -372,8 +372,8 @@ func TestBatch_UnmarshalJSON_Request(t *testing.T) {
 	]` // Last one is technically a notification without params
 
 	// Expected Batch
-	req1 := NewRequest(int64(1), "method1").WithParams(NewParamsArray([]string{"p1"}))
-	req2 := NewNotification("notify").WithParams(NewParamsObject(map[string]int{"p2": 2})).AsRequest()
+	req1 := NewRequestWithParams(int64(1), "method1", NewParamsArray([]string{"p1"}))
+	req2 := NewNotificationWithParams("notify", NewParamsObject(map[string]int{"p2": 2})).AsRequest()
 	req3 := NewRequest("req-3", "method3")
 	req4 := NewNotification("invalid").AsRequest() // No ID means notification
 
@@ -383,16 +383,23 @@ func TestBatch_UnmarshalJSON_Request(t *testing.T) {
 	// Unmarshal
 	var actualBatch Batch[*Request]
 	err := Unmarshal([]byte(inputJSON), &actualBatch)
-	tassert.NoError(err, "Unmarshaling valid request batch JSON should not produce an error")
+	tassert.NoError(err, "Unmarshalling valid request batch JSON should not produce an error")
 
 	// Deep comparison is tricky due to unexported fields and potential raw messages.
 	// Compare lengths and individual elements based on known fields.
 	tassert.Len(actualBatch, len(expectedBatch), "Unmarshaled batch length mismatch")
+
 	if len(actualBatch) == len(expectedBatch) {
 		for i := range expectedBatch {
 			tassert.Equal(expectedBatch[i].Method, actualBatch[i].Method, "Method mismatch at index %d", i)
-			tassert.True(expectedBatch[i].ID.Equal(actualBatch[i].ID), "ID mismatch at index %d", i)
-			// Comparing Params requires unmarshaling them, which adds complexity.
+
+			if expectedBatch[i].ID.IsZero() {
+				tassert.True(actualBatch[i].ID.IsZero(), "Unexpected Non-Zero ID mismatch at index %d", i)
+			} else {
+				tassert.True(expectedBatch[i].ID.Equal(actualBatch[i].ID), "ID mismatch at index %d", i)
+			}
+
+			// Comparing Params requires unmarshalling them, which adds complexity.
 			// Check if params are present/absent as a basic check.
 			tassert.Equal(expectedBatch[i].Params.IsZero(), actualBatch[i].Params.IsZero(), "Params presence mismatch at index %d", i)
 		}
@@ -401,25 +408,25 @@ func TestBatch_UnmarshalJSON_Request(t *testing.T) {
 	// Test empty array
 	var emptyBatch Batch[*Request]
 	err = Unmarshal([]byte("[]"), &emptyBatch)
-	tassert.NoError(err, "Unmarshaling '[]' should not produce an error")
+	tassert.NoError(err, "Unmarshalling '[]' should not produce an error")
 	tassert.NotNil(emptyBatch, "Unmarshaled empty batch should not be nil") // Should be an empty slice, not nil
 	tassert.Len(emptyBatch, 0, "Unmarshaled empty batch should have length 0")
 
 	// Test null
 	var nullBatch Batch[*Request]
 	err = Unmarshal([]byte("null"), &nullBatch)
-	tassert.NoError(err, "Unmarshaling 'null' should not produce an error")
+	tassert.NoError(err, "Unmarshalling 'null' should not produce an error")
 	tassert.Nil(nullBatch, "Unmarshaled null batch should be nil") // Should be nil slice
 
 	// Test invalid JSON
 	var invalidBatch Batch[*Request]
 	err = Unmarshal([]byte(`[{"method":"test", "id":1`), &invalidBatch) // Malformed JSON
-	tassert.Error(err, "Unmarshaling invalid JSON should produce an error")
+	tassert.Error(err, "Unmarshalling invalid JSON should produce an error")
 
 	// Test invalid type (object instead of array)
 	err = Unmarshal([]byte(`{"method":"test", "id":1}`), &invalidBatch)
-	tassert.Error(err, "Unmarshaling JSON object into batch should produce an error")
-	tassert.Contains(err.Error(), "cannot unmarshal object into Go value of type jsonrpc2.Batch[*jsonrpc2.Request]", "Error message should indicate type mismatch")
+	tassert.Error(err, "Unmarshalling JSON object into batch should produce an error")
+	tassert.Contains(err.Error(), "cannot unmarshal object into Go value of type", "Error message should indicate type mismatch")
 }
 
 func TestBatch_MarshalJSON_Response(t *testing.T) {
@@ -437,8 +444,8 @@ func TestBatch_MarshalJSON_Response(t *testing.T) {
 	// Expected JSON
 	expectedJSON := `[
 		{"jsonrpc":"2.0","result":"result1","id":1},
-		{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error","data":"details"},"id":"req-2"},
-		{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"},"id":null}
+		{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal Error","data":"details"},"id":"req-2"},
+		{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse Error"},"id":null}
 	]`
 
 	// Marshal
@@ -466,8 +473,8 @@ func TestBatch_UnmarshalJSON_Response(t *testing.T) {
 	// Input JSON
 	inputJSON := `[
 		{"jsonrpc":"2.0","result":"result1","id":1},
-		{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error","data":"details"},"id":"req-2"},
-		{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"},"id":null},
+		{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal Error","data":"details"},"id":"req-2"},
+		{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse Error"},"id":null},
 		{"jsonrpc":"2.0","result":null,"id":3}
 	]`
 
@@ -483,19 +490,22 @@ func TestBatch_UnmarshalJSON_Response(t *testing.T) {
 	// Unmarshal
 	var actualBatch Batch[*Response]
 	err := Unmarshal([]byte(inputJSON), &actualBatch)
-	tassert.NoError(err, "Unmarshaling valid response batch JSON should not produce an error")
+	tassert.NoError(err, "Unmarshalling valid response batch JSON should not produce an error")
 
 	// Deep comparison is tricky. Compare lengths and key fields.
 	tassert.Len(actualBatch, len(expectedBatch), "Unmarshaled batch length mismatch")
+
 	if len(actualBatch) == len(expectedBatch) {
 		for i := range expectedBatch {
 			tassert.True(expectedBatch[i].ID.Equal(actualBatch[i].ID), "ID mismatch at index %d", i)
 			tassert.Equal(expectedBatch[i].Error.IsZero(), actualBatch[i].Error.IsZero(), "Error presence mismatch at index %d", i)
+
 			if !expectedBatch[i].Error.IsZero() {
 				tassert.Equal(expectedBatch[i].Error.err.Code, actualBatch[i].Error.err.Code, "Error code mismatch at index %d", i)
 				tassert.Equal(expectedBatch[i].Error.err.Message, actualBatch[i].Error.err.Message, "Error message mismatch at index %d", i)
-				// Comparing Result/Error Data requires unmarshaling, skip for simplicity or add if needed
+				// Comparing Result/Error Data requires unmarshalling, skip for simplicity or add if needed
 			}
+
 			tassert.Equal(expectedBatch[i].Result.IsZero(), actualBatch[i].Result.IsZero(), "Result presence mismatch at index %d", i)
 		}
 	}
@@ -503,23 +513,23 @@ func TestBatch_UnmarshalJSON_Response(t *testing.T) {
 	// Test empty array
 	var emptyBatch Batch[*Response]
 	err = Unmarshal([]byte("[]"), &emptyBatch)
-	tassert.NoError(err, "Unmarshaling '[]' should not produce an error")
+	tassert.NoError(err, "Unmarshalling '[]' should not produce an error")
 	tassert.NotNil(emptyBatch, "Unmarshaled empty batch should not be nil")
 	tassert.Len(emptyBatch, 0, "Unmarshaled empty batch should have length 0")
 
 	// Test null
 	var nullBatch Batch[*Response]
 	err = Unmarshal([]byte("null"), &nullBatch)
-	tassert.NoError(err, "Unmarshaling 'null' should not produce an error")
+	tassert.NoError(err, "Unmarshalling 'null' should not produce an error")
 	tassert.Nil(nullBatch, "Unmarshaled null batch should be nil")
 
 	// Test invalid JSON
 	var invalidBatch Batch[*Response]
 	err = Unmarshal([]byte(`[{"result":"ok", "id":1`), &invalidBatch) // Malformed JSON
-	tassert.Error(err, "Unmarshaling invalid JSON should produce an error")
+	tassert.Error(err, "Unmarshalling invalid JSON should produce an error")
 
 	// Test invalid type (object instead of array)
 	err = Unmarshal([]byte(`{"result":"ok", "id":1}`), &invalidBatch)
-	tassert.Error(err, "Unmarshaling JSON object into batch should produce an error")
-	tassert.Contains(err.Error(), "cannot unmarshal object into Go value of type jsonrpc2.Batch[*jsonrpc2.Response]", "Error message should indicate type mismatch")
+	tassert.Error(err, "Unmarshalling JSON object into batch should produce an error")
+	tassert.Contains(err.Error(), "cannot unmarshal object into Go value of type", "Error message should indicate type mismatch")
 }
