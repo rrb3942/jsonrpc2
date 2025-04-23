@@ -313,6 +313,13 @@ func TestErrorMarshalUnmarshalJSON(t *testing.T) {
 				t.Fatalf("UnmarshalJSON failed: %v\nJSON: %s", err, string(dataToUnmarshal))
 			}
 
+			// Check for zero when unexpected
+			if !tt.input.IsZero() {
+				if unmarshaledErr.IsZero() {
+					t.Errorf("UnmarshalJSON zero value mismatch: got %v, want %v", unmarshaledErr, tt)
+				}
+			}
+
 			// Compare the unmarshalled error with the original input error
 			// Need to compare fields directly as Data might be json.RawMessage vs original type
 			if unmarshaledErr.Code() != tt.input.Code() {

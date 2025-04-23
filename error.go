@@ -95,7 +95,13 @@ func (e Error) Error() string {
 
 // UnmarshalJSON implements [json.Unmarshaler].
 func (e *Error) UnmarshalJSON(b []byte) error {
-	return Unmarshal(b, &e.err)
+	if err := Unmarshal(b, &e.err); err != nil {
+		return err
+	}
+
+	e.present = true
+
+	return nil
 }
 
 // MarshalJSON implements [json.Marshaler].
