@@ -2,7 +2,6 @@ package jsonrpc2
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 )
 
@@ -19,51 +18,6 @@ var ErrMethodAlreadyExists = errors.New("method already exits in mux")
 // Notifications automaically drop any responses or errors.
 type Handler interface {
 	Handle(context.Context, *Request) (any, error)
-}
-
-func handleRequest(ctx context.Context, handler Handler, decoder interface{ Unmarshal([]byte, any) error }, callbacks *Callbacks, rpc json.RawMessage) (res any) {
-	var req Request
-
-	err := decoder.Unmarshal(rpc, &req)
-
-	if err != nil {
-		callbacks.runOnDecodingError(ctx, rpc, err)
-
-		return &Response{ID: NewNullID(), Error: ErrInvalidRequest.WithData(err.Error())}
-	}
-
-	// Catch panics from inside the handler
-	defer func() {
-		if r := recover(); r != nil {
-			res = ErrInternalError
-
-			callbacks.runOnHandlerPanic(ctx, &req, r)
-		}
-	}()
-
-	result, err := handler.Handle(ctx, &req)
-
-	if req.IsNotification() {
-		return nil
-	}
-
-	if err != nil {
-		return req.ResponseWithError(err)
-	}
-
-	// Special return types
-	switch r := result.(type) {
-	case *Response:
-		return r
-	case RawResponse:
-		return json.RawMessage(r)
-	}
-
-	if result == nil {
-		result = nullValue
-	}
-
-	return req.ResponseWithResult(result)
 }
 
 // funcHandler is used to wrap a function into a [Handler].

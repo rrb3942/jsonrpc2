@@ -79,8 +79,53 @@ func NewRPCServerFromPacket(rw net.PacketConn, handler Handler) *RPCServer {
 	return NewPacketServer(NewPacketDecoder(rw), NewPacketEncoder(rw), handler)
 }
 
+func (rp *RPCServer) handleRequest(ctx context.Context, rpc json.RawMessage) (res any) {
+	var req Request
+
+	err := rp.decoder.Unmarshal(rpc, &req)
+
+	if err != nil {
+		rp.Callbacks.runOnDecodingError(ctx, rpc, err)
+
+		return &Response{ID: NewNullID(), Error: ErrInvalidRequest.WithData(err.Error())}
+	}
+
+	// Catch panics from inside the handler
+	defer func() {
+		if r := recover(); r != nil {
+			res = ErrInternalError
+
+			rp.Callbacks.runOnHandlerPanic(ctx, &req, r)
+		}
+	}()
+
+	result, err := rp.Handler.Handle(ctx, &req)
+
+	if req.IsNotification() {
+		return nil
+	}
+
+	if err != nil {
+		return req.ResponseWithError(err)
+	}
+
+	// Special return types
+	switch r := result.(type) {
+	case *Response:
+		return r
+	case RawResponse:
+		return json.RawMessage(r)
+	}
+
+	if result == nil {
+		result = nullValue
+	}
+
+	return req.ResponseWithResult(result)
+}
+
 func (rp *RPCServer) runRequest(ctx context.Context, r json.RawMessage, from net.Addr) {
-	if resp := handleRequest(ctx, rp.Handler, rp.decoder, &rp.Callbacks, r); resp != nil {
+	if resp := rp.handleRequest(ctx, r); resp != nil {
 		if err := rp.encoder.EncodeTo(ctx, resp, from); err != nil {
 			rp.Callbacks.runOnEncodingError(ctx, resp, err)
 		}
@@ -117,7 +162,7 @@ func (rp *RPCServer) runRequests(ctx context.Context, raw json.RawMessage, from 
 
 	if len(objs) == 1 || rp.SerialBatch {
 		for _, jReq := range objs {
-			resp := handleRequest(ctx, rp.Handler, rp.decoder, &rp.Callbacks, jReq)
+			resp := rp.handleRequest(ctx, jReq)
 
 			if resp != nil {
 				resps = append(resps, resp)
@@ -134,7 +179,7 @@ func (rp *RPCServer) runRequests(ctx context.Context, raw json.RawMessage, from 
 			go func(gctx context.Context, jr json.RawMessage) {
 				defer wg.Done()
 
-				res := handleRequest(gctx, rp.Handler, rp.decoder, &rp.Callbacks, jr)
+				res := rp.handleRequest(gctx, jr)
 
 				respMu.Lock()
 				defer respMu.Unlock()
