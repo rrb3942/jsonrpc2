@@ -215,3 +215,115 @@ func TestResponse_id(t *testing.T) {
 	assert.Equal(t, idStr, respStr.id())
 	assert.Equal(t, idNull, respNull.id())
 }
+
+func TestResponse_MarshalUnmarshalJSON(t *testing.T) {
+	t.Parallel()
+	tassert := assert.New(t)
+	trequire := require.New(t)
+
+	customErr := NewError(-32000, "Custom server error")
+	stdErr := errors.New("standard internal error")
+	wrappedStdErr := ErrInternalError.WithData(stdErr.Error()) // How asError wraps standard errors
+
+	//nolint:govet //Do not reorder struct
+	testCases := []struct {
+		name         string
+		response     *Response
+		expectedJSON string
+	}{
+		{
+			name:         "Response with result, int ID",
+			response:     NewResponseWithResult(int64(1), "success data"),
+			expectedJSON: `{"jsonrpc":"2.0","result":"success data","id":1}`,
+		},
+		{
+			name:         "Response with result, string ID, object result",
+			response:     NewResponseWithResult("req-abc", map[string]any{"status": "ok", "value": 123}),
+			expectedJSON: `{"jsonrpc":"2.0","result":{"status":"ok","value":123},"id":"req-abc"}`,
+		},
+		{
+			name:         "Response with jsonrpc2 error, int ID",
+			response:     NewResponseWithError(int64(2), customErr),
+			expectedJSON: `{"jsonrpc":"2.0","error":{"code":-32000,"message":"Custom server error"},"id":2}`,
+		},
+		{
+			name:         "Response with standard error, string ID",
+			response:     NewResponseWithError("req-xyz", stdErr),
+			expectedJSON: `{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error","data":"standard internal error"},"id":"req-xyz"}`,
+		},
+		{
+			name:         "Response with error, null ID",
+			response:     NewResponseError(ErrInvalidRequest),
+			expectedJSON: `{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request"},"id":null}`,
+		},
+		{
+			name:         "Response with result, null ID (spec violation, but test marshaling)",
+			response:     &Response{ID: NewNullID(), Result: NewResult("data")},
+			expectedJSON: `{"jsonrpc":"2.0","result":"data","id":null}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc // Capture range variable
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tassert := assert.New(t)
+			trequire := require.New(t)
+
+			// Marshal
+			jsonData, err := json.Marshal(tc.response)
+			trequire.NoError(err, "Marshaling failed")
+			tassert.JSONEq(tc.expectedJSON, string(jsonData), "Marshaled JSON does not match expected")
+
+			// Unmarshal
+			var unmarshaledResp Response
+			err = json.Unmarshal(jsonData, &unmarshaledResp)
+			trequire.NoError(err, "Unmarshaling failed")
+
+			// Prepare expected response for comparison after unmarshal adds Jsonrpc version
+			expectedResp := *tc.response
+			expectedResp.Jsonrpc = Version{present: true} // json.Marshal adds this
+
+			// Compare basic fields
+			tassert.Equal(expectedResp.Jsonrpc, unmarshaledResp.Jsonrpc, "Jsonrpc version mismatch")
+			tassert.Equal(expectedResp.ID, unmarshaledResp.ID, "ID mismatch")
+
+			// Compare Result
+			if expectedResp.Result.IsZero() {
+				tassert.True(unmarshaledResp.Result.IsZero(), "Expected zero result, but got non-zero")
+			} else {
+				tassert.False(unmarshaledResp.Result.IsZero(), "Expected non-zero result, but got zero")
+				// Unmarshal results for deep comparison
+				var expectedResultVal, unmarshaledResultVal any
+				err = expectedResp.Result.Unmarshal(&expectedResultVal)
+				trequire.NoError(err, "Failed to unmarshal expected result for comparison")
+				err = unmarshaledResp.Result.Unmarshal(&unmarshaledResultVal)
+				trequire.NoError(err, "Failed to unmarshal actual result for comparison")
+				tassert.Equal(expectedResultVal, unmarshaledResultVal, "Result content mismatch")
+			}
+
+			// Compare Error
+			if expectedResp.Error.IsZero() {
+				tassert.True(unmarshaledResp.Error.IsZero(), "Expected zero error, but got non-zero")
+			} else {
+				tassert.False(unmarshaledResp.Error.IsZero(), "Expected non-zero error, but got zero")
+				// Compare error fields directly. For data, unmarshal if necessary.
+				tassert.Equal(expectedResp.Error.err.Code, unmarshaledResp.Error.err.Code, "Error code mismatch")
+				tassert.Equal(expectedResp.Error.err.Message, unmarshaledResp.Error.err.Message, "Error message mismatch")
+
+				// Compare Error Data
+				if expectedResp.Error.Data().IsZero() {
+					tassert.True(unmarshaledResp.Error.Data().IsZero(), "Expected zero error data, but got non-zero")
+				} else {
+					tassert.False(unmarshaledResp.Error.Data().IsZero(), "Expected non-zero error data, but got zero")
+					var expectedErrDataVal, unmarshaledErrDataVal any
+					err = expectedResp.Error.Data().Unmarshal(&expectedErrDataVal)
+					trequire.NoError(err, "Failed to unmarshal expected error data for comparison")
+					err = unmarshaledResp.Error.Data().Unmarshal(&unmarshaledErrDataVal)
+					trequire.NoError(err, "Failed to unmarshal actual error data for comparison")
+					tassert.Equal(expectedErrDataVal, unmarshaledErrDataVal, "Error data content mismatch")
+				}
+			}
+		})
+	}
+}
