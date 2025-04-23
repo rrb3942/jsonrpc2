@@ -1,7 +1,6 @@
 package jsonrpc2
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -14,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const reqPingBody = `{"jsonrpc": "2.0", "method": "ping", "id": 1}`
+
 // testHandler is a simple handler for testing purposes.
 func testHandler(ctx context.Context, req *Request) (any, error) {
 	switch req.Method {
@@ -22,19 +23,21 @@ func testHandler(ctx context.Context, req *Request) (any, error) {
 		if err := req.Params.Unmarshal(&params); err != nil {
 			return nil, ErrInvalidParams.WithData(err.Error())
 		}
+
 		return params, nil
 	case "ping":
 		return "pong", nil
 	case "error":
 		return nil, NewError(123, "test error")
 	case "notify":
-		// No response for notifications
+		//nolint:nilnil //No response for notifications
 		return nil, nil
 	case "checkContext":
 		httpReq, ok := ctx.Value(CtxHTTPRequest).(*http.Request)
 		if !ok {
 			return "context key not found", nil
 		}
+
 		return httpReq.Method, nil
 	default:
 		return nil, ErrMethodNotFound
@@ -42,7 +45,7 @@ func testHandler(ctx context.Context, req *Request) (any, error) {
 }
 
 func TestNewHTTPHandler(t *testing.T) {
-	h := NewHTTPHandler(MethodMux{"test": Func(testHandler)})
+	h := NewHTTPHandler(NewFuncHandler(testHandler))
 	require.NotNil(t, h)
 	assert.NotNil(t, h.handler)
 	assert.NotNil(t, h.NewEncoder) // Should default to jsonrpc2.NewEncoder
@@ -51,13 +54,14 @@ func TestNewHTTPHandler(t *testing.T) {
 }
 
 func TestHTTPHandler_ServeHTTP_SimpleRequest(t *testing.T) {
-	handler := NewHTTPHandler(Func(testHandler))
+	handler := NewHTTPHandler(&funcHandler{funcHandle: testHandler})
+
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	reqBody := `{"jsonrpc": "2.0", "method": "ping", "id": 1}`
-	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqBody))
+	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqPingBody))
 	require.NoError(t, err)
+
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -70,8 +74,7 @@ func TestHTTPHandler_ServeHTTP_SimpleRequest(t *testing.T) {
 	err = json.Unmarshal(bodyBytes, &rpcResp)
 	require.NoError(t, err)
 
-	assert.Equal(t, Version, rpcResp.Jsonrpc)
-	assert.Equal(t, json.Number("1"), rpcResp.ID.NumberOrZero())
+	assert.Equal(t, json.Number("1"), rpcResp.ID.value)
 	assert.True(t, rpcResp.Error.IsZero())
 	require.False(t, rpcResp.Result.IsZero())
 
@@ -82,7 +85,8 @@ func TestHTTPHandler_ServeHTTP_SimpleRequest(t *testing.T) {
 }
 
 func TestHTTPHandler_ServeHTTP_BatchRequest(t *testing.T) {
-	handler := NewHTTPHandler(Func(testHandler))
+	handler := NewHTTPHandler(NewFuncHandler(testHandler))
+
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -92,6 +96,7 @@ func TestHTTPHandler_ServeHTTP_BatchRequest(t *testing.T) {
 	]`
 	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqBody))
 	require.NoError(t, err)
+
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -108,8 +113,8 @@ func TestHTTPHandler_ServeHTTP_BatchRequest(t *testing.T) {
 	// Response order might not be guaranteed, check both
 	foundPing := false
 	foundEcho := false
+
 	for _, rpcResp := range rpcResps {
-		assert.Equal(t, Version, rpcResp.Jsonrpc)
 		assert.True(t, rpcResp.Error.IsZero())
 		require.False(t, rpcResp.Result.IsZero())
 
@@ -120,29 +125,34 @@ func TestHTTPHandler_ServeHTTP_BatchRequest(t *testing.T) {
 			err = rpcResp.Result.Unmarshal(&result)
 			require.NoError(t, err)
 			assert.Equal(t, "pong", result)
+
 			foundPing = true
 		case "2": // echo response
 			var result []string
 			err = rpcResp.Result.Unmarshal(&result)
 			require.NoError(t, err)
 			assert.Equal(t, []string{"hello"}, result)
+
 			foundEcho = true
 		default:
 			t.Fatalf("Unexpected response ID: %v", rpcResp.ID)
 		}
 	}
+
 	assert.True(t, foundPing, "Did not find ping response")
 	assert.True(t, foundEcho, "Did not find echo response")
 }
 
 func TestHTTPHandler_ServeHTTP_Notification(t *testing.T) {
-	handler := NewHTTPHandler(Func(testHandler))
+	handler := NewHTTPHandler(NewFuncHandler(testHandler))
+
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
 	reqBody := `{"jsonrpc": "2.0", "method": "notify"}` // No ID means notification
 	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqBody))
 	require.NoError(t, err)
+
 	defer resp.Body.Close()
 
 	// Notifications should result in No Content
@@ -154,26 +164,30 @@ func TestHTTPHandler_ServeHTTP_Notification(t *testing.T) {
 }
 
 func TestHTTPHandler_ServeHTTP_InvalidContentType(t *testing.T) {
-	handler := NewHTTPHandler(Func(testHandler))
+	handler := NewHTTPHandler(NewFuncHandler(testHandler))
+
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	reqBody := `{"jsonrpc": "2.0", "method": "ping", "id": 1}`
-	resp, err := http.Post(server.URL, "text/plain", strings.NewReader(reqBody)) // Invalid Content-Type
+	reqPingBody := `{"jsonrpc": "2.0", "method": "ping", "id": 1}`
+	resp, err := http.Post(server.URL, "text/plain", strings.NewReader(reqPingBody)) // Invalid Content-Type
 	require.NoError(t, err)
+
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusUnsupportedMediaType, resp.StatusCode)
 }
 
 func TestHTTPHandler_ServeHTTP_InvalidJSON(t *testing.T) {
-	handler := NewHTTPHandler(Func(testHandler))
+	handler := NewHTTPHandler(NewFuncHandler(testHandler))
+
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
 	reqBody := `{"jsonrpc": "2.0", "method": "ping", "id": 1` // Missing closing brace
 	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqBody))
 	require.NoError(t, err)
+
 	defer resp.Body.Close()
 
 	// The server should still try to process and return a JSON-RPC error
@@ -188,17 +202,19 @@ func TestHTTPHandler_ServeHTTP_InvalidJSON(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.False(t, rpcResp.Error.IsZero())
-	assert.Equal(t, ErrParseError.Code(), rpcResp.Error.Code()) // Or InvalidRequest
+	assert.True(t, rpcResp.Error.Is(ErrParse)) // Or InvalidRequest
 }
 
 func TestHTTPHandler_ServeHTTP_HandlerError(t *testing.T) {
-	handler := NewHTTPHandler(Func(testHandler))
+	handler := NewHTTPHandler(NewFuncHandler(testHandler))
+
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
 	reqBody := `{"jsonrpc": "2.0", "method": "error", "id": 1}`
 	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqBody))
 	require.NoError(t, err)
+
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -211,7 +227,7 @@ func TestHTTPHandler_ServeHTTP_HandlerError(t *testing.T) {
 	err = json.Unmarshal(bodyBytes, &rpcResp)
 	require.NoError(t, err)
 
-	assert.Equal(t, json.Number("1"), rpcResp.ID.NumberOrZero())
+	assert.Equal(t, json.Number("1"), rpcResp.ID.value)
 	assert.True(t, rpcResp.Result.IsZero())
 	require.False(t, rpcResp.Error.IsZero())
 	assert.Equal(t, int64(123), rpcResp.Error.Code())
@@ -219,14 +235,15 @@ func TestHTTPHandler_ServeHTTP_HandlerError(t *testing.T) {
 }
 
 func TestHTTPHandler_ServeHTTP_MaxBytes(t *testing.T) {
-	handler := NewHTTPHandler(Func(testHandler))
+	handler := NewHTTPHandler(NewFuncHandler(testHandler))
 	handler.MaxBytes = 10 // Set a small limit
+
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	reqBody := `{"jsonrpc": "2.0", "method": "ping", "id": 1}` // This is larger than 10 bytes
-	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqBody))
+	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqPingBody))
 	require.NoError(t, err)
+
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
@@ -234,24 +251,26 @@ func TestHTTPHandler_ServeHTTP_MaxBytes(t *testing.T) {
 
 func TestHTTPHandler_ServeHTTP_Binder(t *testing.T) {
 	var boundServer *RPCServer
+
 	var boundCtx context.Context
-	binder := func(ctx context.Context, server *RPCServer, stop context.CancelCauseFunc) {
+
+	binder := func(ctx context.Context, server *RPCServer, _ context.CancelCauseFunc) {
 		boundServer = server
 		boundCtx = ctx
 		// Example: Add a specific callback via binder
-		server.Callbacks.OnDecodingError = func(ctx context.Context, m json.RawMessage, e error) {
+		server.Callbacks.OnDecodingError = func(_ context.Context, _ json.RawMessage, e error) {
 			t.Logf("Binder OnDecodingError called: %v", e)
 		}
 	}
 
-	handler := NewHTTPHandler(Func(testHandler))
-	handler.Binder = BinderFunc(binder) // Use BinderFunc adapter
+	handler := NewHTTPHandler(NewFuncHandler(testHandler))
+	handler.Binder = NewFuncBinder(binder) // Use NewFuncBinder adapter
+
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
 	// 1. Test successful request to ensure binder was called
-	reqBody := `{"jsonrpc": "2.0", "method": "ping", "id": 1}`
-	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqBody))
+	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqPingBody))
 	require.NoError(t, err)
 	resp.Body.Close() // Close immediately, just checking status and binder call
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -268,6 +287,7 @@ func TestHTTPHandler_ServeHTTP_Binder(t *testing.T) {
 	reqBodyInvalid := `{"jsonrpc": "2.0", `
 	resp, err = http.Post(server.URL, "application/json", strings.NewReader(reqBodyInvalid))
 	require.NoError(t, err)
+
 	defer resp.Body.Close()
 	// Expecting OK status because the server handles the error and returns a JSON-RPC error response
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -276,13 +296,15 @@ func TestHTTPHandler_ServeHTTP_Binder(t *testing.T) {
 }
 
 func TestHTTPHandler_ServeHTTP_ContextPropagation(t *testing.T) {
-	handler := NewHTTPHandler(Func(testHandler))
+	handler := NewHTTPHandler(NewFuncHandler(testHandler))
+
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
 	reqBody := `{"jsonrpc": "2.0", "method": "checkContext", "id": 1}`
 	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqBody))
 	require.NoError(t, err)
+
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -295,37 +317,32 @@ func TestHTTPHandler_ServeHTTP_ContextPropagation(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, rpcResp.Error.IsZero())
+
 	var result string
 	err = rpcResp.Result.Unmarshal(&result)
 	require.NoError(t, err)
 	assert.Equal(t, http.MethodPost, result) // Handler should return the HTTP method from context
 }
 
-// BinderFunc is an adapter to allow the use of ordinary functions as Binders.
-type BinderFunc func(context.Context, *RPCServer, context.CancelCauseFunc)
-
-// Bind calls f(ctx, server, stop).
-func (f BinderFunc) Bind(ctx context.Context, server *RPCServer, stop context.CancelCauseFunc) {
-	f(ctx, server, stop)
-}
-
-// Helper to create a request and recorder for direct handler testing
+// Helper to create a request and recorder for direct handler testing.
 func executeRequest(t *testing.T, h http.Handler, method, path, contentType string, body io.Reader) *httptest.ResponseRecorder {
 	t.Helper()
+
 	req := httptest.NewRequest(method, path, body)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
+
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
+
 	return rr
 }
 
 func TestHTTPHandler_ServeHTTP_DirectCall(t *testing.T) {
-	handler := NewHTTPHandler(Func(testHandler))
+	handler := NewHTTPHandler(NewFuncHandler(testHandler))
 
-	reqBody := `{"jsonrpc": "2.0", "method": "ping", "id": 1}`
-	rr := executeRequest(t, handler, http.MethodPost, "/", "application/json", strings.NewReader(reqBody))
+	rr := executeRequest(t, handler, http.MethodPost, "/", "application/json", strings.NewReader(reqPingBody))
 
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
@@ -334,9 +351,9 @@ func TestHTTPHandler_ServeHTTP_DirectCall(t *testing.T) {
 	err := json.Unmarshal(rr.Body.Bytes(), &rpcResp)
 	require.NoError(t, err)
 
-	assert.Equal(t, Version, rpcResp.Jsonrpc)
-	assert.Equal(t, json.Number("1"), rpcResp.ID.NumberOrZero())
+	assert.Equal(t, json.Number("1"), rpcResp.ID.value)
 	assert.True(t, rpcResp.Error.IsZero())
+
 	var result string
 	err = rpcResp.Result.Unmarshal(&result)
 	require.NoError(t, err)
@@ -345,21 +362,24 @@ func TestHTTPHandler_ServeHTTP_DirectCall(t *testing.T) {
 
 func TestHTTPHandler_ServeHTTP_NoBodyResponse(t *testing.T) {
 	// Handler that returns nothing successfully (like a notification handler, but with an ID)
-	nullHandler := func(ctx context.Context, req *Request) (any, error) {
+	nullHandler := func(_ context.Context, _ *Request) (any, error) {
 		// Simulate successful processing but no result data to return
 		// Note: Returning `nil, nil` for a request with an ID technically violates
 		// JSON-RPC spec (should have `result: null`), but we test how the HTTP handler deals with it.
 		// A more correct handler would return `NewResult(nil), nil`
+		//nolint:nilnil //See above
 		return nil, nil
 	}
 
-	handler := NewHTTPHandler(Func(nullHandler))
+	handler := NewHTTPHandler(NewFuncHandler(nullHandler))
+
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
 	reqBody := `{"jsonrpc": "2.0", "method": "anything", "id": 1}`
 	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqBody))
 	require.NoError(t, err)
+
 	defer resp.Body.Close()
 
 	// Even if the handler returns nil result, a valid JSON-RPC response with "result": null should be formed.
@@ -374,8 +394,7 @@ func TestHTTPHandler_ServeHTTP_NoBodyResponse(t *testing.T) {
 	err = json.Unmarshal(bodyBytes, &rpcResp)
 	require.NoError(t, err, "Response body: %s", string(bodyBytes))
 
-	assert.Equal(t, Version, rpcResp.Jsonrpc)
-	assert.Equal(t, json.Number("1"), rpcResp.ID.NumberOrZero())
+	assert.Equal(t, json.Number("1"), rpcResp.ID.value)
 	assert.True(t, rpcResp.Error.IsZero())
 	// Check that result is explicitly null
 	assert.Equal(t, `null`, string(rpcResp.Result.RawMessage()))
@@ -383,15 +402,17 @@ func TestHTTPHandler_ServeHTTP_NoBodyResponse(t *testing.T) {
 
 func TestHTTPHandler_ServeHTTP_EmptyBatchResponse(t *testing.T) {
 	// Handler that handles notifications only
-	notifyOnlyHandler := func(ctx context.Context, req *Request) (any, error) {
+	notifyOnlyHandler := func(_ context.Context, req *Request) (any, error) {
 		if req.IsNotification() {
-			// Process notification
-			return nil, nil // No response for notifications
+			//nolint:nilnil //No response for notifications
+			return nil, nil
 		}
+
 		return nil, ErrMethodNotFound // Error for non-notifications
 	}
 
-	handler := NewHTTPHandler(Func(notifyOnlyHandler))
+	handler := NewHTTPHandler(NewFuncHandler(notifyOnlyHandler))
+
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -402,6 +423,7 @@ func TestHTTPHandler_ServeHTTP_EmptyBatchResponse(t *testing.T) {
 	]`
 	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqBody))
 	require.NoError(t, err)
+
 	defer resp.Body.Close()
 
 	// If a batch request contains only notifications, the server MUST NOT return a response.
@@ -412,7 +434,8 @@ func TestHTTPHandler_ServeHTTP_EmptyBatchResponse(t *testing.T) {
 }
 
 func TestHTTPHandler_ServeHTTP_MixedBatchResponse(t *testing.T) {
-	handler := NewHTTPHandler(Func(testHandler)) // Use standard test handler
+	handler := NewHTTPHandler(NewFuncHandler(testHandler)) // Use standard test handler
+
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -423,6 +446,7 @@ func TestHTTPHandler_ServeHTTP_MixedBatchResponse(t *testing.T) {
 	]`
 	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqBody))
 	require.NoError(t, err)
+
 	defer resp.Body.Close()
 
 	// Response should contain only the response for the non-notification request
@@ -440,16 +464,16 @@ func TestHTTPHandler_ServeHTTP_MixedBatchResponse(t *testing.T) {
 
 	// Check the single response object
 	rpcResp := rpcResps[0]
-	assert.Equal(t, Version, rpcResp.Jsonrpc)
-	assert.Equal(t, json.Number("123"), rpcResp.ID.NumberOrZero())
+	assert.Equal(t, json.Number("123"), rpcResp.ID.value)
 	assert.True(t, rpcResp.Error.IsZero())
+
 	var result string
 	err = rpcResp.Result.Unmarshal(&result)
 	require.NoError(t, err)
 	assert.Equal(t, "pong", result)
 }
 
-// Custom encoder/decoder for testing injection
+// Custom encoder/decoder for testing injection.
 type customEncoder struct {
 	Encoder
 	called bool
@@ -472,6 +496,7 @@ func (c *customDecoder) Decode(ctx context.Context, v any) error {
 
 func TestHTTPHandler_ServeHTTP_CustomEncoderDecoder(t *testing.T) {
 	var enc *customEncoder
+
 	var dec *customDecoder
 
 	newEnc := func(w io.Writer) Encoder {
@@ -483,7 +508,7 @@ func TestHTTPHandler_ServeHTTP_CustomEncoderDecoder(t *testing.T) {
 		return dec
 	}
 
-	handler := NewHTTPHandler(Func(testHandler))
+	handler := NewHTTPHandler(NewFuncHandler(testHandler))
 	handler.NewEncoder = newEnc
 	handler.NewDecoder = newDec
 
@@ -493,6 +518,7 @@ func TestHTTPHandler_ServeHTTP_CustomEncoderDecoder(t *testing.T) {
 	reqBody := `{"jsonrpc": "2.0", "method": "ping", "id": 1}`
 	resp, err := http.Post(server.URL, "application/json", strings.NewReader(reqBody))
 	require.NoError(t, err)
+
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -505,10 +531,12 @@ func TestHTTPHandler_ServeHTTP_CustomEncoderDecoder(t *testing.T) {
 	// Verify response is still correct
 	bodyBytes, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
+
 	var rpcResp Response
 	err = json.Unmarshal(bodyBytes, &rpcResp)
 	require.NoError(t, err)
-	assert.Equal(t, json.Number("1"), rpcResp.ID.NumberOrZero())
+	assert.Equal(t, json.Number("1"), rpcResp.ID.value)
+
 	var result string
 	err = rpcResp.Result.Unmarshal(&result)
 	require.NoError(t, err)
