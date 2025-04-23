@@ -20,6 +20,11 @@ type Handler interface {
 	Handle(context.Context, *Request) (any, error)
 }
 
+// NewFuncHandler returns a [Handler] that serves using the given function
+func NewFuncHandler(handler func(context.Context, *Request) (any, error)) Handler {
+	return &funcHandler{funcHandle: handler}
+}
+
 // funcHandler is used to wrap a function into a [Handler].
 type funcHandler struct {
 	funcHandle func(context.Context, *Request) (any, error)
@@ -63,7 +68,7 @@ func (mm *MethodMux) RegisterFunc(method string, handler func(context.Context, *
 		return ErrMethodAlreadyExists
 	}
 
-	mm.mux[method] = &funcHandler{funcHandle: handler}
+	mm.mux[method] = NewFuncHandler(handler)
 
 	return nil
 }
