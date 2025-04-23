@@ -62,7 +62,7 @@ func (h *HTTPHandler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		h.Binder.Bind(sctx, rpcServer, stop)
 	}
 
-	err := rpcServer.Run(req.Context())
+	err := rpcServer.Run(sctx)
 
 	if err != nil && !errors.Is(err, io.EOF) {
 		// Http server will give unexpectedEOF on malformed json
