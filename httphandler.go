@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	maxBytesError = &http.MaxBytesError{}
+	errMaxBytes = &http.MaxBytesError{}
 )
 
 // HTTPHandler provides an example implementation of a jsonrpc2 as an [http.Handler]
@@ -67,11 +67,11 @@ func (h *HTTPHandler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	if err != nil && !errors.Is(err, io.EOF) {
 		// Http server will give unexpectedEOF on malformed json
 		if errors.Is(err, io.ErrUnexpectedEOF) {
-			if buf, err := Marshal(NewResponseError(ErrParse)); err == nil {
+			if buf, merr := Marshal(NewResponseError(ErrParse)); merr == nil {
 				_, _ = buffer.Write(buf)
 			}
 		} else {
-			if errors.As(err, &maxBytesError) {
+			if errors.As(err, &errMaxBytes) {
 				resp.WriteHeader(http.StatusRequestEntityTooLarge)
 				return
 			}

@@ -20,7 +20,9 @@ type Handler interface {
 	Handle(context.Context, *Request) (any, error)
 }
 
-// NewFuncHandler returns a [Handler] that serves using the given function
+// NewFuncHandler returns a [Handler] that serves using the given function.
+//
+//nolint:ireturn //Helper function
 func NewFuncHandler(handler func(context.Context, *Request) (any, error)) Handler {
 	return &funcHandler{funcHandle: handler}
 }

@@ -10,9 +10,9 @@ import (
 )
 
 var (
-	// Used for checking for json errors
-	syntaxErr   = &json.SyntaxError{}
-	jsonTypeErr = &json.UnmarshalTypeError{}
+	// Used for checking for json errors.
+	errSyntax   = &json.SyntaxError{}
+	errJSONType = &json.UnmarshalTypeError{}
 )
 
 // RPCServer represents a single jsonrpc2 server that handles rpc requests and notifications.
@@ -259,15 +259,17 @@ func (rp *RPCServer) Run(ctx context.Context) (err error) {
 		from, err = rp.decoder.DecodeFrom(sctx, &buf)
 
 		if err != nil {
-			if errors.As(err, &syntaxErr) {
+			if errors.As(err, &errSyntax) {
 				_ = rp.encoder.EncodeTo(ctx, NewResponseError(ErrParse.WithData(err)), from)
 				err = nil
+
 				continue
 			}
 
-			if errors.As(err, &jsonTypeErr) {
+			if errors.As(err, &errJSONType) {
 				_ = rp.encoder.EncodeTo(ctx, NewResponseError(ErrInvalidRequest.WithData(err)), from)
 				err = nil
+
 				continue
 			}
 

@@ -14,6 +14,8 @@ type Binder interface {
 }
 
 // NewFuncBinder returns a [Binder] runs the given function on bind.
+//
+//nolint:ireturn //Helper function
 func NewFuncBinder(binder func(context.Context, *RPCServer, context.CancelCauseFunc)) Binder {
 	return &funcBinder{funcBind: binder}
 }
