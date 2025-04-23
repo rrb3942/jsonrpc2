@@ -8,6 +8,10 @@ import (
 	"net/http"
 )
 
+var (
+	maxBytesError = &http.MaxBytesError{}
+)
+
 // HTTPHandler provides an example implementation of a jsonrpc2 as an [http.Handler]
 //
 // Binder may be set before the first use of the handler.
@@ -67,7 +71,7 @@ func (h *HTTPHandler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 				_, _ = buffer.Write(buf)
 			}
 		} else {
-			if errors.Is(err, ErrJSONTooLarge) {
+			if errors.As(err, &maxBytesError) {
 				resp.WriteHeader(http.StatusRequestEntityTooLarge)
 				return
 			}
