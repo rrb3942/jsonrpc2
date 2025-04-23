@@ -1,13 +1,10 @@
 package jsonrpc2
 
 import (
-	"fmt"
-	"strconv"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestNewBatch(t *testing.T) {
@@ -77,8 +74,8 @@ func TestBatch_Index_Contains_Get(t *testing.T) {
 	id3 := NewID(int64(3))
 	idNotFound := NewID("not-found")
 
-	req1 := NewRequest(int64(1), "method1") // ID matches id1
-	req2 := NewRequest("req-2", "method2") // ID matches id2
+	req1 := NewRequest(int64(1), "method1")       // ID matches id1
+	req2 := NewRequest("req-2", "method2")        // ID matches id2
 	req3 := NewNotification("notify").AsRequest() // No ID (zero ID)
 
 	batch := NewBatch[*Request](0)
@@ -89,14 +86,14 @@ func TestBatch_Index_Contains_Get(t *testing.T) {
 	tassert.Equal(1, batch.Index(id2), "Index for id2 should be 1")
 	tassert.Equal(-1, batch.Index(id3), "Index for id3 (not present) should be -1")
 	tassert.Equal(-1, batch.Index(idNotFound), "Index for idNotFound should be -1")
-	tassert.Equal(2, batch.Index(ID{}), "Index for zero ID (notification) should be 2") // Notification has zero ID
+	tassert.Equal(-1, batch.Index(ID{}), "Index for zero ID (notification) should be -1") // Notification has zero ID
 
 	// Test Contains
 	tassert.True(batch.Contains(id1), "Contains id1 should be true")
 	tassert.True(batch.Contains(id2), "Contains id2 should be true")
 	tassert.False(batch.Contains(id3), "Contains id3 (not present) should be false")
 	tassert.False(batch.Contains(idNotFound), "Contains idNotFound should be false")
-	tassert.True(batch.Contains(ID{}), "Contains zero ID (notification) should be true")
+	tassert.False(batch.Contains(ID{}), "Contains zero ID (notification) should be false")
 
 	// Test Get
 	foundReq, ok := batch.Get(id1)
@@ -115,9 +112,8 @@ func TestBatch_Index_Contains_Get(t *testing.T) {
 	tassert.False(ok, "Get idNotFound should return false")
 	tassert.Nil(foundReq, "Get idNotFound should return nil")
 
-	foundReq, ok = batch.Get(ID{}) // Get notification
-	tassert.True(ok, "Get zero ID (notification) should return true")
-	tassert.Equal(req3, foundReq, "Get zero ID (notification) should return req3")
+	_, ok = batch.Get(ID{}) // Get notification should fail
+	tassert.False(ok, "Get zero ID (notification) should return false")
 
 	// Test on empty batch
 	emptyBatch := NewBatch[*Request](0)
@@ -191,18 +187,17 @@ func TestBatch_Delete(t *testing.T) {
 func TestBatchCorrelate(t *testing.T) {
 	t.Parallel()
 	tassert := assert.New(t)
-	trequire := require.New(t)
 
 	// --- Test Case Setup ---
 	req1 := NewRequest(int64(1), "method1")
 	req2 := NewRequest("req-2", "method2")
-	req3 := NewRequest(int64(3), "method3") // No matching response
-	req4 := NewNotification("notify").AsRequest() // Notification, no ID
+	req3 := NewRequest(int64(3), "method3")       // No matching response
+	req4 := NewNotification("notify").AsRequest() // Notification, no ID, no match
 
 	res1 := NewResponseWithResult(int64(1), "result1")
 	res2 := NewResponseWithError("req-2", ErrInternalError)
 	res4 := NewResponseWithResult(int64(4), "result4") // No matching request
-	resNull := NewResponseError(ErrParseError)      // Null ID
+	resNull := NewResponseError(ErrParse)              // Null ID, no match
 
 	requests := NewBatch[*Request](0)
 	requests.Add(req1, req2, req3, req4)
@@ -215,73 +210,42 @@ func TestBatchCorrelate(t *testing.T) {
 		req *Request
 		res *Response
 	}
+
 	results := make([]correlationResult, 0)
+
 	var mu sync.Mutex // Protect results slice if running subtests in parallel (though BatchCorrelate itself is serial)
 
 	BatchCorrelate(requests, responses, func(req *Request, res *Response) bool {
 		mu.Lock()
 		results = append(results, correlationResult{req: req, res: res})
 		mu.Unlock()
+
 		return true // Continue processing
 	})
 
 	// --- Assertions ---
-	tassert.Len(results, 5, "Should have 5 correlation results (3 matched + 1 unmatched req + 1 unmatched res)")
+	tassert.Len(results, 6, "Should have 6 correlation results (2 matched + 1 unmatched req + 1 unmatched notification + 1 unmatched parse error + 1 unmatched res)")
 
 	// Check each result - order matters based on BatchCorrelate implementation (requests first, then unmatched responses)
 	expectedResults := []correlationResult{
-		{req: req1, res: res1},    // Matched req1 <-> res1
-		{req: req2, res: res2},    // Matched req2 <-> res2
-		{req: req3, res: nil},     // Unmatched req3
-		{req: req4, res: nil},     // Unmatched req4 (notification) - correlation uses ID, so it won't match null ID response
-		{req: nil, res: res4},     // Unmatched res4
-		// Note: resNull (null ID) is not included because BatchCorrelate iterates requests first,
-		// and req4 (notification, zero ID) doesn't match null ID. Then it iterates responses,
-		// checking if a request with the *same* ID exists. Null ID response won't find a matching request ID.
-		// If req4 had a null ID, it *might* match depending on ID.Equal implementation, but notifications have zero ID.
+		{req: req1, res: res1},   // Matched req1 <-> res1
+		{req: req2, res: res2},   // Matched req2 <-> res2
+		{req: req3, res: nil},    // Unmatched req3
+		{req: req4, res: nil},    // Unmatched req4 (notification) - correlation uses ID, so it won't match null ID response
+		{req: nil, res: res4},    // Unmatched res4
+		{req: nil, res: resNull}, // Unmatched resNUll
 	}
 
-	// Custom comparison function because pointer equality won't work directly
+	// Comparison function
 	compareResults := func(expected, actual []correlationResult) bool {
 		if len(expected) != len(actual) {
 			return false
 		}
-		// Create maps for easier lookup, assuming IDs (or lack thereof) are unique enough for this test
-		expectedMap := make(map[string]correlationResult)
-		actualMap := make(map[string]correlationResult)
 
-		idToString := func(id ID) string {
-			if id.IsZero() { return "zero" }
-			if id.IsNull() { return "null" }
-			s, _ := id.String()
-			i, _ := id.Int64()
-			return fmt.Sprintf("%s_%d", s, i)
+		for i := range expectedResults {
+			tassert.Equal(expected[i], actual[i], "Correlation result mismatch")
 		}
 
-		for _, r := range expected {
-			key := "req:"
-			if r.req != nil { key += idToString(r.req.id()) } else { key += "nil" }
-			key += "_res:"
-			if r.res != nil { key += idToString(r.res.id()) } else { key += "nil" }
-			expectedMap[key] = r
-		}
-		for _, r := range actual {
-			key := "req:"
-			if r.req != nil { key += idToString(r.req.id()) } else { key += "nil" }
-			key += "_res:"
-			if r.res != nil { key += idToString(r.res.id()) } else { key += "nil" }
-			actualMap[key] = r
-		}
-
-        // Now compare maps (using require inside for better failure messages)
-        trequire.Equal(t, len(expectedMap), len(actualMap), "Number of unique correlation pairs differs")
-        for key, expectedVal := range expectedMap {
-            actualVal, ok := actualMap[key]
-            trequire.True(t, ok, "Missing expected correlation key: %s", key)
-            // Compare the actual request/response objects within the pair
-            tassert.Equal(t, expectedVal.req, actualVal.req, "Request mismatch for key: %s", key)
-            tassert.Equal(t, expectedVal.res, actualVal.res, "Response mismatch for key: %s", key)
-        }
 		return true // If we got here, they matched
 	}
 
@@ -290,12 +254,12 @@ func TestBatchCorrelate(t *testing.T) {
 		// Log detailed results if the custom comparison fails overall assertion
 		t.Logf("Expected Results: %+v", expectedResults)
 		t.Logf("Actual Results:   %+v", results)
-		tassert.Fail(t, "Correlation results do not match expected results")
+		tassert.Fail("Correlation results do not match expected results")
 	}
-
 
 	// Test early exit
 	results = make([]correlationResult, 0) // Reset results
+
 	BatchCorrelate(requests, responses, func(req *Request, res *Response) bool {
 		mu.Lock()
 		results = append(results, correlationResult{req: req, res: res})
@@ -314,15 +278,16 @@ func TestBatchCorrelate(t *testing.T) {
 		mu.Lock()
 		results = append(results, correlationResult{req: req, res: res})
 		mu.Unlock()
+
 		return true
 	})
 	// Should only contain the unmatched responses
-	tassert.Len(results, 2, "Should contain only unmatched responses when requests are empty")
-	tassert.Nil(results[0].req)
-	tassert.Equal(res4, results[0].res) // Order depends on response batch iteration
-	tassert.Nil(results[1].req)
-	tassert.Equal(resNull, results[1].res) // Order depends on response batch iteration
+	tassert.Len(results, 4, "Should contain only unmatched responses when requests are empty")
 
+	for i := range responses {
+		tassert.Nil(results[i].req) // All requests should be nil
+		tassert.Equal(responses[i], results[i].res)
+	}
 
 	// Test with empty responses
 	results = make([]correlationResult, 0)
@@ -331,25 +296,26 @@ func TestBatchCorrelate(t *testing.T) {
 		mu.Lock()
 		results = append(results, correlationResult{req: req, res: res})
 		mu.Unlock()
+
 		return true
 	})
-	// Should only contain the unmatched requests
+
 	tassert.Len(results, 4, "Should contain only unmatched requests when responses are empty")
-	tassert.Equal(req1, results[0].req)
-	tassert.Nil(results[0].res)
-	tassert.Equal(req2, results[1].req)
-	tassert.Nil(results[1].res)
-	tassert.Equal(req3, results[2].req)
-	tassert.Nil(results[2].res)
-	tassert.Equal(req4, results[3].req) // Notification
-	tassert.Nil(results[3].res)
+
+	// Should only contain the unmatched requests
+	for i := range requests {
+		tassert.Nil(results[i].res) // All requests should be nil
+		tassert.Equal(requests[i], results[i].req)
+	}
 
 	// Test with both empty
 	results = make([]correlationResult, 0)
+
 	BatchCorrelate(emptyRequests, emptyResponses, func(req *Request, res *Response) bool {
 		mu.Lock()
 		results = append(results, correlationResult{req: req, res: res})
 		mu.Unlock()
+
 		return true
 	})
 	tassert.Len(results, 0, "Should have no results when both batches are empty")
