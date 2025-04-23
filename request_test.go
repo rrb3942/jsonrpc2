@@ -154,12 +154,117 @@ func TestRequest_id(t *testing.T) {
 	tassert.True(id.IsZero())
 }
 
+func TestRequest_MarshalUnmarshalJSON(t *testing.T) {
+	t.Parallel()
+	tassert := assert.New(t)
+	trequire := require.New(t)
+
+	testCases := []struct {
+		name        string
+		request     *Request
+		expectedJSON string
+	}{
+		{
+			name:        "Request with int ID, no params",
+			request:     NewRequest(int64(1), "method1"),
+			expectedJSON: `{"jsonrpc":"2.0","method":"method1","id":1}`,
+		},
+		{
+			name: "Request with string ID, array params",
+			request: NewRequestWithParams("req-2", "method2", NewParamsJSONArray([]any{1, "two", true})),
+			expectedJSON: `{"jsonrpc":"2.0","method":"method2","params":[1,"two",true],"id":"req-2"}`,
+		},
+		{
+			name: "Request with string ID, object params",
+			request: NewRequestWithParams("req-3", "method3", NewParamsJSONObject(map[string]any{"key": "value", "num": 42})),
+			expectedJSON: `{"jsonrpc":"2.0","method":"method3","params":{"key":"value","num":42},"id":"req-3"}`,
+		},
+		{
+			name: "Notification with params",
+			request: NewNotificationWithParams("notify1", NewParamsJSONArray([]any{"data"})).AsRequest(),
+			expectedJSON: `{"jsonrpc":"2.0","method":"notify1","params":["data"]}`,
+		},
+		{
+			name:        "Notification without params",
+			request:     NewNotification("notify2").AsRequest(),
+			expectedJSON: `{"jsonrpc":"2.0","method":"notify2"}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc // Capture range variable
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tassert := assert.New(t)
+			trequire := require.New(t)
+
+			// Marshal
+			jsonData, err := json.Marshal(tc.request)
+			trequire.NoError(err, "Marshaling failed")
+			tassert.JSONEq(tc.expectedJSON, string(jsonData), "Marshaled JSON does not match expected")
+
+			// Unmarshal
+			var unmarshaledReq Request
+			err = json.Unmarshal(jsonData, &unmarshaledReq)
+			trequire.NoError(err, "Unmarshaling failed")
+
+			// Need to manually set Jsonrpc version on original request for comparison
+			// as it's added during marshaling but not part of the constructor.
+			// Also handle the case where ID might be explicitly null vs omitted for notifications.
+			expectedReq := *tc.request
+			expectedReq.Jsonrpc = Version{present: true}
+			if expectedReq.IsNotification() {
+				// Ensure ID is truly zero for comparison after unmarshal sets it to null ID
+				expectedReq.ID = ID{}
+			}
+
+
+			// Compare fields carefully, especially Params which might need deep comparison
+			// if not using testify's Equal which handles this.
+			tassert.Equal(expectedReq.Jsonrpc, unmarshaledReq.Jsonrpc, "Jsonrpc version mismatch")
+			tassert.Equal(expectedReq.Method, unmarshaledReq.Method, "Method mismatch")
+			tassert.Equal(expectedReq.ID, unmarshaledReq.ID, "ID mismatch")
+
+			// Compare Params
+			if expectedReq.Params.IsZero() {
+				tassert.True(unmarshaledReq.Params.IsZero(), "Expected zero params, but got non-zero")
+			} else {
+				tassert.False(unmarshaledReq.Params.IsZero(), "Expected non-zero params, but got zero")
+				// Unmarshal original and unmarshaled params into maps/slices for comparison
+				var expectedParamsVal, unmarshaledParamsVal any
+				err = expectedReq.Params.Unmarshal(&expectedParamsVal)
+				trequire.NoError(err, "Failed to unmarshal expected params for comparison")
+				err = unmarshaledReq.Params.Unmarshal(&unmarshaledParamsVal)
+				trequire.NoError(err, "Failed to unmarshal actual params for comparison")
+				tassert.Equal(expectedParamsVal, unmarshaledParamsVal, "Params content mismatch")
+			}
+		})
+	}
+}
+
 // Helper to create Params from an object easily for tests.
 func NewParamsJSONObject(v any) Params {
 	//nolint:errchkjson //Helper func for testing
 	raw, _ := json.Marshal(v)
 	p := Params{}
-	_ = p.UnmarshalJSON(raw)
+	_ = p.UnmarshalJSON(raw) // Assign value via UnmarshalJSON
 
 	return p
+}
+
+// Helper to create Params from an array easily for tests.
+func NewParamsJSONArray(v any) Params {
+	//nolint:errchkjson //Helper func for testing
+	raw, _ := json.Marshal(v)
+	p := Params{}
+	_ = p.UnmarshalJSON(raw) // Assign value via UnmarshalJSON
+
+	return p
+}
+
+// Helper to create Notification with params easily for tests.
+func NewNotificationWithParams(method string, p Params) *Notification {
+	n := NewNotification(method)
+	n.Params = p
+	return n
 }
