@@ -23,6 +23,34 @@ func NewBatch[B Batchable](size int) Batch[B] {
 	return make(Batch[B], 0, size)
 }
 
+// BatchCorrelate compares ids in members of a Batch[*Request] and a Batch[*Response], calling the correlated function for each matched pair.
+//
+// Unmatched members will call correlated without an acommpaning member, so correlated must check if either [*Request] or [*Response] is nil.
+//
+// The correlated function must return true to continue processing, or may return false to break iteration early.
+//
+// BatchCorrelate does not handle cases of duplicate or reused ids, it expects every request/response to have a unique id.
+func BatchCorrelate(requests Batch[*Request], responses Batch[*Response], correlated func(*Request, *Response) (cont bool)) {
+	// Go through requests first
+	for _, req := range requests {
+		res, _ := responses.Get(req.id())
+		if !correlated(req, res) {
+			return
+		}
+	}
+
+	// Now check for any responses that did not match to a request
+	for _, res := range responses {
+		_, ok := requests.Get(res.id())
+
+		if !ok {
+			if !correlated(nil, res) {
+				return
+			}
+		}
+	}
+}
+
 // Add appends one or more items to a Batch.
 func (b *Batch[B]) Add(v ...B) {
 	*b = append(*b, v...)
