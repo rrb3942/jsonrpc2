@@ -61,14 +61,21 @@ func (h *HTTPHandler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	err := rpcServer.Run(req.Context())
 
 	if err != nil && !errors.Is(err, io.EOF) {
-		if errors.Is(err, ErrJSONTooLarge) {
-			resp.WriteHeader(http.StatusRequestEntityTooLarge)
+		// Http server will give unexpectedEOF on malformed json
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			if buf, err := Marshal(NewResponseError(ErrParse)); err == nil {
+				_, _ = buffer.Write(buf)
+			}
+		} else {
+			if errors.Is(err, ErrJSONTooLarge) {
+				resp.WriteHeader(http.StatusRequestEntityTooLarge)
+				return
+			}
+
+			resp.WriteHeader(http.StatusInternalServerError)
+
 			return
 		}
-
-		resp.WriteHeader(http.StatusInternalServerError)
-
-		return
 	}
 
 	if buffer.Len() > 0 {
