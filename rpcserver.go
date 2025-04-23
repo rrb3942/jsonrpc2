@@ -126,25 +126,24 @@ func (rp *RPCServer) runRequests(ctx context.Context, raw json.RawMessage, from 
 	} else {
 		var wg sync.WaitGroup
 
-		results := make(chan any, len(objs))
+		var respMu sync.Mutex
 
 		for _, jReq := range objs {
 			wg.Add(1)
 
-			go func(gctx context.Context, ch chan<- any, jr json.RawMessage) {
+			go func(gctx context.Context, jr json.RawMessage) {
 				defer wg.Done()
-				ch <- handleRequest(gctx, rp.Handler, rp.decoder, &rp.Callbacks, jr)
-			}(ctx, results, jReq)
+
+				res := handleRequest(gctx, rp.Handler, rp.decoder, &rp.Callbacks, jr)
+
+				respMu.Lock()
+				defer respMu.Unlock()
+
+				resps = append(resps, res)
+			}(ctx, jReq)
 		}
 
 		wg.Wait()
-		close(results)
-
-		for resp := range results {
-			if resp != nil {
-				resps = append(resps, resp)
-			}
-		}
 	}
 
 	if len(resps) > 0 {
