@@ -57,7 +57,8 @@ func (h *HTTPBridge) Encode(ctx context.Context, v any) error {
 	buf, err := Marshal(v)
 
 	if err != nil {
-		return nil
+		// Propagate marshal errors instead of swallowing them
+		return err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.url, bytes.NewReader(buf))
@@ -83,8 +84,10 @@ func (h *HTTPBridge) Encode(ctx context.Context, v any) error {
 	if resp.Header.Get("Content-Type") == "application/json" {
 		h.respJSON = true
 
-		if _, err := h.respBuffer.ReadFrom(resp.Body); !errors.Is(err, io.EOF) {
-			return err
+		// ReadFrom can return io.EOF which is not an error in this context
+		_, err := h.respBuffer.ReadFrom(resp.Body)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return fmt.Errorf("http: failed to read response body: %w", err)
 		}
 	}
 
