@@ -122,7 +122,7 @@ func (c *Client) CallBatch(ctx context.Context, r Batch[*Request]) (Batch[*Respo
 
 // CallRaw calls the given [RawRequest] over the configured stream and returns the [*Response].
 func (c *Client) CallRaw(ctx context.Context, r RawRequest) (*Response, error) {
-	rawResp, err := c.call(ctx, r, false)
+	rawResp, err := c.call(ctx, json.RawMessage(r), false)
 
 	if err != nil {
 		return nil, err
@@ -181,7 +181,7 @@ func (c *Client) NotifyBatch(ctx context.Context, n Batch[*Notification]) error 
 
 // NotifyRaw sends the given [RawNotification], not waiting for a response.
 func (c *Client) NotifyRaw(ctx context.Context, n RawNotification) error {
-	if _, err := c.call(ctx, n, true); err != nil {
+	if _, err := c.call(ctx, json.RawMessage(n), true); err != nil {
 		return err
 	}
 
