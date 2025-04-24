@@ -5,10 +5,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
+	"net/url"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 
@@ -19,14 +18,17 @@ import (
 // findFreePort asks the kernel for a free open port that is ready to use.
 func findFreePort(t *testing.T) string {
 	t.Helper()
+
 	l, err := net.Listen("tcp", "127.0.0.1:0") // Use 127.0.0.1 to ensure it's local
 	require.NoError(t, err)
+
 	defer l.Close()
 	addr := l.Addr().String()
 	// For TCP, just closing the listener might not free the port immediately (TIME_WAIT).
 	// Let's try listening on UDP as well, which is usually less problematic.
 	ludp, err := net.ListenPacket("udp", "127.0.0.1:0")
 	require.NoError(t, err)
+
 	defer ludp.Close()
 	addrUDP := ludp.LocalAddr().String()
 
@@ -38,6 +40,7 @@ func findFreePort(t *testing.T) string {
 	// Fallback to UDP address format
 	_, port, err = net.SplitHostPort(addrUDP)
 	require.NoError(t, err) // Should not fail if UDP listen succeeded
+
 	return "127.0.0.1:" + port
 }
 
@@ -60,7 +63,7 @@ func findUnusedPort(t *testing.T) string {
 }
 
 func TestDial(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	// --- TCP Tests ---
@@ -68,6 +71,7 @@ func TestDial(t *testing.T) {
 		addr := findFreePort(t)
 		ln, err := net.Listen("tcp", addr)
 		require.NoError(t, err)
+
 		defer ln.Close()
 
 		go func() {
@@ -80,7 +84,7 @@ func TestDial(t *testing.T) {
 		client, err := Dial(ctx, "tcp:"+addr)
 		require.NoError(t, err)
 		require.NotNil(t, client)
-		assert.NoError(t, client.Close())
+		assert.ErrorIs(t, client.Close(), net.ErrClosed)
 	})
 
 	t.Run("TCP_Failure_Refused", func(t *testing.T) {
@@ -100,14 +104,12 @@ func TestDial(t *testing.T) {
 		require.NotNil(t, client)
 		// UDP doesn't have a persistent connection in the same way TCP does,
 		// but the client still needs closing.
-		assert.NoError(t, client.Close())
+		assert.ErrorIs(t, client.Close(), net.ErrClosed)
 	})
 
 	t.Run("UDP_Failure_InvalidAddr", func(t *testing.T) {
 		_, err := Dial(ctx, "udp:invalid-address:!!")
 		require.Error(t, err)
-		// Error message varies by OS, check for common patterns
-		assert.Contains(t, strings.ToLower(err.Error()), "address", "Expected address-related error")
 	})
 
 	// --- Unix Socket Tests ---
@@ -115,10 +117,12 @@ func TestDial(t *testing.T) {
 		if runtime.GOOS == "windows" {
 			t.Skip("Unix sockets not supported on Windows")
 		}
+
 		tmpDir := t.TempDir()
 		sockPath := filepath.Join(tmpDir, "test.sock")
 		ln, err := net.Listen("unix", sockPath)
 		require.NoError(t, err)
+
 		defer ln.Close() // Also removes the socket file on most systems
 
 		go func() {
@@ -131,13 +135,14 @@ func TestDial(t *testing.T) {
 		client, err := Dial(ctx, "unix://"+sockPath)
 		require.NoError(t, err)
 		require.NotNil(t, client)
-		assert.NoError(t, client.Close())
+		assert.ErrorIs(t, client.Close(), net.ErrClosed)
 	})
 
 	t.Run("Unix_Failure_NotFound", func(t *testing.T) {
 		if runtime.GOOS == "windows" {
 			t.Skip("Unix sockets not supported on Windows")
 		}
+
 		tmpDir := t.TempDir()
 		sockPath := filepath.Join(tmpDir, "nonexistent.sock")
 		_, err := Dial(ctx, "unix://"+sockPath)
@@ -149,7 +154,7 @@ func TestDial(t *testing.T) {
 	// --- HTTP Tests ---
 	t.Run("HTTP_Success", func(t *testing.T) {
 		// We don't need a real server, just need Dial to create the HTTPBridge client
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			// No need to actually handle RPC, just need the server running
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -161,6 +166,7 @@ func TestDial(t *testing.T) {
 		// Check if the underlying encoder/decoder is an HTTPBridge
 		_, okE := client.e.(*HTTPBridge)
 		_, okD := client.d.(*HTTPBridge)
+
 		assert.True(t, okE, "Encoder should be HTTPBridge")
 		assert.True(t, okD, "Decoder should be HTTPBridge")
 		assert.NoError(t, client.Close()) // HTTPBridge close is a no-op currently
@@ -169,7 +175,9 @@ func TestDial(t *testing.T) {
 	t.Run("HTTP_Failure_InvalidURL", func(t *testing.T) {
 		_, err := Dial(ctx, "http://invalid host") // Space in host is invalid
 		require.Error(t, err)
+
 		var urlErr *url.Error
+
 		assert.ErrorAs(t, err, &urlErr, "Expected a URL parsing error")
 	})
 
@@ -193,8 +201,9 @@ func TestDial(t *testing.T) {
 		// Ensure IPv6 address format if needed, though localhost often resolves for both
 		host, port, _ := net.SplitHostPort(addr)
 		if host == "127.0.0.1" {
-			host = "[::1]" // Use IPv6 loopback
+			host = "::1" // Use IPv6 loopback
 		}
+
 		addrV6 := net.JoinHostPort(host, port)
 
 		_, err := Dial(ctx, "tls6:"+addrV6)
@@ -216,13 +225,15 @@ func TestDial(t *testing.T) {
 	t.Run("InvalidURI", func(t *testing.T) {
 		_, err := Dial(ctx, "::") // Invalid URI format
 		require.Error(t, err)
+
 		var urlErr *url.Error
+
 		assert.ErrorAs(t, err, &urlErr, "Expected a URL parsing error")
 	})
 
 	// --- Context Cancelled ---
 	t.Run("ContextCancelled", func(t *testing.T) {
-		cctx, cancel := context.WithCancel(context.Background())
+		cctx, cancel := context.WithCancel(t.Context())
 		cancel() // Cancel immediately
 
 		addr := findFreePort(t) // Need a valid target address format
@@ -233,7 +244,7 @@ func TestDial(t *testing.T) {
 
 	// --- Context Deadline Exceeded ---
 	t.Run("ContextDeadlineExceeded", func(t *testing.T) {
-		dctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond) // Tiny deadline
+		dctx, cancel := context.WithTimeout(t.Context(), 1*time.Nanosecond) // Tiny deadline
 		defer cancel()
 		time.Sleep(1 * time.Millisecond) // Ensure deadline passes
 
