@@ -10,7 +10,7 @@ import (
 
 // Dial creates a client connection to the given uri.
 //
-// Supported schemes: tcp, tcp4, tcp6, udp, udp4, udp6, unix, unixgram, unixpacket, http, tls (tls over tcp), tls6 (tls over tcp6)
+// Supported schemes: tcp, tcp4, tcp6, udp, udp4, udp6, unix, unixgram, unixpacket, http, tls (tls over tcp), tls4 (tls over tcp4), tls6 (tls over tcp6)
 //
 // TLS connections use the default go [tls.Config].
 //
@@ -65,6 +65,8 @@ func dialTLS(ctx context.Context, network, addr string) (*Client, error) {
 	switch {
 	case strings.HasSuffix(network, "6"):
 		network = "tcp6"
+	case strings.HasSuffix(network, "4"):
+		network = "tcp4"
 	default:
 		network = "tcp"
 	}
