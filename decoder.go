@@ -74,7 +74,8 @@ func (i *StreamDecoder) SetIdleTimeout(d time.Duration) {
 // Used for checking for if we hit read limits and changing EOF to ErrJSONTooLarge.
 func (i *StreamDecoder) ioErr(e error) error {
 	if i.lr != nil {
-		if errors.Is(e, io.EOF) {
+		// json decoder might turn io.EOF into io.ErrUnexpectedEOF if it gets caught mid object
+		if errors.Is(e, io.EOF) || errors.Is(e, io.ErrUnexpectedEOF) {
 			if i.lr.N <= 0 {
 				return ErrJSONTooLarge
 			}
