@@ -13,7 +13,7 @@ var (
 	ErrJSONTooLarge = errors.New("JSON payload larger than configured read limit")
 )
 
-// Decoder represents a compatible decoder for use with [StreamServer] and [Client].
+// Decoder represents a compatible decoder for use with [NewStreamServer] and [Client].
 //
 // A compatible implementation must support all types and interfaces of [encoding/json] including,
 // but not limited to, [json.Marshaler], [json.Unmarshaler], [json.RawMessage], [json.Number] and the `omitzero` struct

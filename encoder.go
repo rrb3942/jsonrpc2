@@ -10,7 +10,7 @@ import (
 
 var ErrEncoding = errors.New("jsonrpc2: encoding error")
 
-// Encoder represents a compatible Encoder for use with [StreamServer] and [Client].
+// Encoder represents a compatible Encoder for use with [NewStreamServer] and [Client].
 //
 // A compatible implementation MUST be go-routine safe and support all types and interfaces of [encoding/json] including,
 // but not limited to, [json.Marshaler], [json.Unmarshaler], [json.RawMessage], [json.Number] and the `omitzero` struct
