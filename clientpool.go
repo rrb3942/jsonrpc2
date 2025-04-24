@@ -52,6 +52,16 @@ type ClientPool struct {
 // If [ClientPooLConfig.AcquireOnCreate] is enabled, an error will be returned if an initial
 // acquire fails.
 func NewClientPool(nctx context.Context, config ClientPoolConfig) (*ClientPool, error) {
+	return NewClientPoolWithDialer(nctx, config, Dial)
+}
+
+// NewClientPoolWithDialer returns a new [*ClientPool] ready for use with a custom dialer.
+//
+// A custom dialer may be used to support custom transports.
+//
+// If [ClientPooLConfig.AcquireOnCreate] is enabled, an error will be returned if an initial
+// acquire fails.
+func NewClientPoolWithDialer(nctx context.Context, config ClientPoolConfig, dialFunc func(ctx context.Context, uri string) (*Client, error)) (*ClientPool, error) {
 	if config.IdleTimeout == 0 {
 		config.IdleTimeout = time.Duration(DefaultPoolIdleTimeout) * time.Second
 	}
@@ -64,7 +74,7 @@ func NewClientPool(nctx context.Context, config ClientPoolConfig) (*ClientPool, 
 		Constructor: func(ctx context.Context) (*Client, error) {
 			dialCtx, stop := context.WithTimeout(ctx, config.DialTimeout)
 			defer stop()
-			return Dial(dialCtx, config.URI)
+			return dialFunc(dialCtx, config.URI)
 		},
 		Destructor: func(client *Client) { _ = client.Close() },
 		MaxSize:    config.MaxSize,
