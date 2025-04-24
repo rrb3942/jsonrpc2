@@ -17,19 +17,20 @@ import (
 
 // mockPacketConn simulates a net.PacketConn for testing.
 type mockPacketConn struct {
-	readChan      chan []byte
-	writeChan     chan []byte
-	closeChan     chan struct{}
-	readDeadline  *time.Timer
-	writeDeadline *time.Timer
-	localAddr     net.Addr
-	remoteAddr    net.Addr
-	readErr       error // Error to return on ReadFrom
-	writeErr      error // Error to return on WriteTo
-	closeErr      error // Error to return on Close
-	mu            sync.Mutex
-	closed        bool
-	deadlineSet   bool // Tracks if SetReadDeadline was called with non-zero time
+	readChan         chan []byte
+	writeChan        chan []byte
+	closeChan        chan struct{}
+	readDeadline     *time.Timer
+	writeDeadline    *time.Timer
+	localAddr        net.Addr
+	remoteAddr       net.Addr
+	readErr          error // Error to return on ReadFrom
+	writeErr         error // Error to return on WriteTo
+	closeErr         error // Error to return on Close
+	mu               sync.Mutex
+	closed           bool
+	readDeadlineSet  bool // Tracks if SetReadDeadline was called with non-zero time
+	writeDeadlineSet bool // Tracks if SetReadDeadline was called with non-zero time
 }
 
 func newMockPacketConn() *mockPacketConn {
@@ -80,6 +81,11 @@ func (m *mockPacketConn) WriteTo(p []byte, _ net.Addr) (n int, err error) {
 	}
 
 	if writeErr != nil {
+		if writeErr.Error() == "force block" {
+			<-deadline.C
+			return 0, os.ErrDeadlineExceeded
+		}
+
 		return 0, writeErr
 	}
 
@@ -133,19 +139,16 @@ func (m *mockPacketConn) SetReadDeadline(t time.Time) error {
 
 	if m.readDeadline == nil {
 		// Initialize timer in a stopped state
-		m.readDeadline = time.NewTimer(time.Hour) // Long duration, will be reset
-		if !m.readDeadline.Stop() {
-			<-m.readDeadline.C // Drain channel if Stop returns false
-		}
+		m.readDeadline = time.NewTimer(time.Until(t)) // Long duration, will be reset
 	}
 
 	// Zero time means stop
 	if t.IsZero() {
 		m.readDeadline.Stop()
-		m.deadlineSet = false // Mark deadline as cleared
+		m.readDeadlineSet = false // Mark deadline as cleared
 	} else {
 		m.readDeadline.Reset(time.Until(t))
-		m.deadlineSet = true // Mark deadline as active
+		m.readDeadlineSet = true // Mark deadline as active
 	}
 
 	return nil
@@ -157,17 +160,16 @@ func (m *mockPacketConn) SetWriteDeadline(t time.Time) error {
 
 	if m.writeDeadline == nil {
 		// Initialize timer in a stopped state
-		m.writeDeadline = time.NewTimer(time.Hour) // Long duration, will be reset
-		if !m.writeDeadline.Stop() {
-			<-m.writeDeadline.C // Drain channel if Stop returns false
-		}
+		m.writeDeadline = time.NewTimer(time.Until(t)) // Long duration, will be reset
 	}
 
 	// Zero time means stop
 	if t.IsZero() {
 		m.writeDeadline.Stop()
+		m.writeDeadlineSet = false
 	} else {
 		m.writeDeadline.Reset(time.Until(t))
+		m.writeDeadlineSet = true
 	}
 
 	return nil
@@ -176,6 +178,16 @@ func (m *mockPacketConn) SetWriteDeadline(t time.Time) error {
 // Helper to send data to the mock connection.
 func (m *mockPacketConn) SendData(data []byte) {
 	m.readChan <- data
+}
+
+// Helper to receive data from the mock connection's write channel.
+func (m *mockPacketConn) ReceiveData(timeout time.Duration) ([]byte, error) {
+	select {
+	case data := <-m.writeChan:
+		return data, nil
+	case <-time.After(timeout):
+		return nil, errors.New("timeout waiting for data on write channel")
+	}
 }
 
 // Ensure mockPacketConn implements net.PacketConn.
@@ -249,7 +261,7 @@ func TestPacketConnDecoder_SetIdleTimeout(t *testing.T) {
 
 	// Verify SetReadDeadline was called correctly
 	conn.mu.Lock()
-	deadlineWasSet := conn.deadlineSet
+	deadlineWasSet := conn.readDeadlineSet
 	conn.mu.Unlock()
 	assert.True(t, deadlineWasSet, "SetReadDeadline should have been called with a non-zero time")
 }
@@ -393,6 +405,7 @@ func TestPacketConnDecoder_DecodeFrom_EmptyPacket(t *testing.T) {
 	assert.Equal(t, conn.remoteAddr, addr)
 	// The specific error might be io.EOF from json decoder or a syntax error
 	var syntaxError *json.SyntaxError
+
 	assert.True(t, errors.Is(err, io.EOF) || errors.As(err, &syntaxError), "Expected EOF or json.SyntaxError for empty packet, got: %v", err)
 }
 

@@ -1,10 +1,10 @@
 package jsonrpc2
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"io"
 	"os"
 	"strings"
