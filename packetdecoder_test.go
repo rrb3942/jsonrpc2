@@ -68,7 +68,7 @@ func (m *mockPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 	}
 }
 
-func (m *mockPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
+func (m *mockPacketConn) WriteTo(p []byte, _ net.Addr) (n int, err error) {
 	m.mu.Lock()
 	deadline := m.writeDeadline
 	writeErr := m.writeErr
@@ -439,8 +439,8 @@ func TestPacketConnDecoder_DecodeFrom_BufferLimit(t *testing.T) {
 	customLimit := int64(10)
 	decoder.SetLimit(customLimit) // This sets i.n
 
-	smallJsonData := `{"a":1}` // Fits in 10 bytes
-	conn.SendData([]byte(smallJsonData))
+	smallJSONData := `{"a":1}` // Fits in 10 bytes
+	conn.SendData([]byte(smallJSONData))
 
 	var smallResult map[string]int
 	addr, err = decoder.DecodeFrom(t.Context(), &smallResult)
@@ -449,8 +449,8 @@ func TestPacketConnDecoder_DecodeFrom_BufferLimit(t *testing.T) {
 	assert.Equal(t, 1, smallResult["a"])
 
 	// Now send data larger than the custom limit
-	largeJsonData := `{"key": "this is definitely larger than 10 bytes"}`
-	conn.SendData([]byte(largeJsonData))
+	largeJSONData := `{"key": "this is definitely larger than 10 bytes"}`
+	conn.SendData([]byte(largeJSONData))
 
 	var largeResult map[string]string
 	addr, err = decoder.DecodeFrom(t.Context(), &largeResult)
