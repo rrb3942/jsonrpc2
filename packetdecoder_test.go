@@ -1,10 +1,10 @@
 package jsonrpc2
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -107,9 +107,11 @@ func (m *mockPacketConn) Close() error {
 	if m.readDeadline != nil {
 		m.readDeadline.Stop()
 	}
+
 	if m.writeDeadline != nil {
 		m.writeDeadline.Stop()
 	}
+
 	return m.closeErr
 }
 
@@ -121,6 +123,7 @@ func (m *mockPacketConn) SetDeadline(t time.Time) error {
 	if err := m.SetReadDeadline(t); err != nil {
 		return err
 	}
+
 	return m.SetWriteDeadline(t)
 }
 
@@ -170,7 +173,7 @@ func (m *mockPacketConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-// Helper to send data to the mock connection
+// Helper to send data to the mock connection.
 func (m *mockPacketConn) SendData(data []byte) {
 	m.readChan <- data
 }
@@ -261,6 +264,7 @@ func TestPacketConnDecoder_DecodeFrom_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 
 	var result map[string]string
+
 	errChan := make(chan error, 1)
 	addrChan := make(chan net.Addr, 1)
 
@@ -280,6 +284,7 @@ func TestPacketConnDecoder_DecodeFrom_ContextCancellation(t *testing.T) {
 	select {
 	case err := <-errChan:
 		addr := <-addrChan
+
 		require.Error(t, err)
 		assert.Nil(t, addr)
 		// The error should include context.Canceled because the AfterFunc triggers SetReadDeadline(now)
@@ -315,6 +320,7 @@ func TestPacketConnDecoder_Unmarshal(t *testing.T) {
 		// Need to copy data as the original buffer might be reused
 		bufCopy := make([]byte, len(data))
 		copy(bufCopy, data)
+
 		return json.Unmarshal(bufCopy, v)
 	}
 
@@ -397,6 +403,7 @@ func TestPacketConnDecoder_DecodeFrom_ReadError(t *testing.T) {
 	decoder := NewPacketConnDecoder(conn)
 
 	expectedErr := errors.New("simulated read error")
+
 	conn.mu.Lock()
 	conn.readErr = expectedErr
 	conn.mu.Unlock()
@@ -434,6 +441,7 @@ func TestPacketConnDecoder_DecodeFrom_BufferLimit(t *testing.T) {
 
 	smallJsonData := `{"a":1}` // Fits in 10 bytes
 	conn.SendData([]byte(smallJsonData))
+
 	var smallResult map[string]int
 	addr, err = decoder.DecodeFrom(t.Context(), &smallResult)
 	require.NoError(t, err, "Should decode successfully as read buffer uses the limit")
@@ -443,6 +451,7 @@ func TestPacketConnDecoder_DecodeFrom_BufferLimit(t *testing.T) {
 	// Now send data larger than the custom limit
 	largeJsonData := `{"key": "this is definitely larger than 10 bytes"}`
 	conn.SendData([]byte(largeJsonData))
+
 	var largeResult map[string]string
 	addr, err = decoder.DecodeFrom(t.Context(), &largeResult)
 	// ReadFrom reads into a buffer of size `readSize` (which is `i.n` if set > 0).
@@ -450,6 +459,7 @@ func TestPacketConnDecoder_DecodeFrom_BufferLimit(t *testing.T) {
 	// Our mock simply copies up to the buffer size. The json.Unmarshal will likely fail.
 	require.Error(t, err, "Expected error decoding truncated JSON")
 	assert.Equal(t, conn.remoteAddr, addr) // Address is received before unmarshal error
+
 	var syntaxError *json.SyntaxError
 	ok := errors.As(err, &syntaxError)
 	assert.True(t, ok, "Expected a json.SyntaxError due to truncation")
