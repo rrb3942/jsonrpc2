@@ -96,7 +96,7 @@ func (mc *mockReadCloser) Close() error {
 	return mc.mock.Close()
 }
 
-// Ensure mockReader implements DeadlineReader and DeadlineWriter.
+// Ensure mockReader implements DeadlineReader.
 var _ DeadlineReader = (*mockReader)(nil)
 
 func TestNewDecoder(t *testing.T) {
