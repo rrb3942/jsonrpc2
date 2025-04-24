@@ -4,12 +4,40 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"sync/atomic"
+	"fmt"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// mockHandler is a simple handler for testing.
+type mockHandler struct {
+	handleFunc func(context.Context, *Request) (any, error)
+	panicFlag  atomic.Bool
+}
+
+func (h *mockHandler) Handle(ctx context.Context, req *Request) (any, error) {
+	if h.panicFlag.Load() {
+		panic("handler panic!")
+	}
+	if h.handleFunc != nil {
+		return h.handleFunc(ctx, req)
+	}
+	// Default echo handler
+	return fmt.Sprintf("handled %s", req.Method), nil
+}
+
+func (h *mockHandler) TriggerPanic() {
+	h.panicFlag.Store(true)
+}
+
+func (h *mockHandler) ResetPanic() {
+	h.panicFlag.Store(false)
+}
+
 // mockHandler is a simple handler for testing purposes.
+/*
 type mockHandler struct {
 	handleFunc func(context.Context, *Request) (any, error)
 }
@@ -21,7 +49,7 @@ func (h *mockHandler) Handle(ctx context.Context, req *Request) (any, error) {
 
 	return "mock result for " + req.Method, nil
 }
-
+*/
 func TestMethodMux_Register(t *testing.T) {
 	mux := NewMethodMux()
 	handler1 := &mockHandler{}
