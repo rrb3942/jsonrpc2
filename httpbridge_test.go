@@ -276,8 +276,6 @@ func TestHTTPBridge_Close(t *testing.T) {
 }
 
 func TestHTTPBridge_Unmarshal(t *testing.T) {
-	t.Parallel()
-
 	bridge := NewHTTPBridge("http://localhost:12345") // URL doesn't matter
 	defer bridge.Close()
 

@@ -309,8 +309,6 @@ func TestPacketConnDecoder_DecodeFrom_ContextCancellation(t *testing.T) {
 }
 
 func TestPacketConnDecoder_Unmarshal(t *testing.T) {
-	t.Parallel()
-
 	conn := newMockPacketConn() // Connection not strictly needed but follows pattern
 	defer conn.Close()
 	decoder := NewPacketConnDecoder(conn)

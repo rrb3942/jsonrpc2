@@ -294,8 +294,6 @@ func TestStreamDecoder_Decode_ContextCancellation(t *testing.T) {
 }
 
 func TestStreamDecoder_Unmarshal(t *testing.T) {
-	t.Parallel()
-
 	decoder := NewStreamDecoder(nil) // Reader doesn't matter for Unmarshal
 
 	jsonData := []byte(`{"field": "value"}`)
