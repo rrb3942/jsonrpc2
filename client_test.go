@@ -68,7 +68,7 @@ func (m *mockConn) SetWriteDeadline(t time.Time) error { return nil }
 
 // setupTestClient creates a client and a simulated server connection using pipes.
 // The server side reads requests from serverReader and writes responses to serverWriter.
-func setupTestClient(serverReader io.Reader, serverWriter io.Writer) (*Client, *mockConn) {
+func setupTestClient(serverReader io.Reader, serverWriter io.Writer) (*Client, *io.PipeWriter, *mockConn) {
 	clientReader, clientWriter := io.Pipe()
 	conn := &mockConn{r: clientReader, w: serverWriter, c: clientWriter}
 	client := NewClientIO(conn)
@@ -99,15 +99,11 @@ func simulateServer(t *testing.T, serverReader io.Reader, serverWriter io.Writer
 
 func TestClient_Call(t *testing.T) {
 	serverReader, serverWriter := io.Pipe() // Server reads from serverReader, writes to serverWriter
-	client, _ := setupTestClient(serverReader, serverWriter)
+	client, clientwriter, _ := setupTestClient(serverReader, serverWriter)
 	defer client.Close()
 
-	req := NewRequestWithParams(int64(1), "testMethod", NewParams("testParam"))
-	expectedResp := &Response{
-		Jsonrpc: V2,
-		Result:  NewResult("testResult"),
-		ID:      NewID(int64(1)),
-	}
+	req := NewRequestWithParams(int64(1), "testMethod", NewParamsArray([]string{"testParam"}))
+	expectedResp := NewResponseWithResult(int64(1), "testResult")
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -156,7 +152,7 @@ func TestClient_CallWithTimeout(t *testing.T) {
 	// Simulate a slow server
 	conn.readDelay = 100 * time.Millisecond
 
-	req := NewRequestWithParams(int64(1), "slowMethod", nil)
+	req := NewRequest(int64(1), "slowMethod")
 
 	ctx := context.Background()
 	timeout := 50 * time.Millisecond // Shorter than server delay
@@ -186,7 +182,7 @@ func TestClient_Notify(t *testing.T) {
 	client, _ := setupTestClient(serverReader, serverWriter)
 	defer client.Close()
 
-	notification := NewNotificationWithParams("notifyMethod", NewParams("notifyData"))
+	notification := NewNotificationWithParams("notifyMethod", NewParamsArray([]string{"notifyData"}))
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -236,7 +232,7 @@ func TestClient_NotifyWithTimeout(t *testing.T) {
 	// Simulate a slow write
 	conn.writeDelay = 100 * time.Millisecond
 
-	notification := NewNotificationWithParams("slowNotify", nil)
+	notification := NewNotification("slowNotify")
 
 	ctx := context.Background()
 	timeout := 50 * time.Millisecond // Shorter than write delay
@@ -269,7 +265,7 @@ func TestClient_Close(t *testing.T) {
 	}
 
 	// Test using a closed client fails
-	req := NewRequestWithParams(int64(1), "testMethod", nil)
+	req := NewRequest(int64(1), "testMethod")
 	_, err = client.Call(context.Background(), req)
 	if err == nil {
 		t.Fatal("client.Call() on closed client should fail, but succeeded")
@@ -296,7 +292,7 @@ func TestClient_Call_ContextCancel(t *testing.T) {
 	// Simulate a delay in writing the request
 	conn.writeDelay = 100 * time.Millisecond
 
-	req := NewRequestWithParams(int64(1), "cancelMethod", nil)
+	req := NewRequest(int64(1), "cancelMethod")
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var wg sync.WaitGroup
@@ -327,13 +323,9 @@ func TestClient_Call_ServerError(t *testing.T) {
 	client, _ := setupTestClient(serverReader, serverWriter)
 	defer client.Close()
 
-	req := NewRequestWithParams(int64(1), "errorMethod", nil)
+	req := NewRequest(int64(1), "errorMethod")
 	expectedErr := NewError(int64(-32000), "Server error occurred")
-	expectedResp := &Response{
-		Jsonrpc: V2,
-		Error:   expectedErr,
-		ID:      NewID(int64(1)),
-	}
+	expectedResp := NewResponseWithError(int64(1), expectedErr)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -366,7 +358,7 @@ func TestClient_Call_DecodeError(t *testing.T) {
 	client, _ := setupTestClient(serverReader, serverWriter)
 	defer client.Close()
 
-	req := NewRequestWithParams(int64(1), "decodeErrorMethod", nil)
+	req := NewRequest(int64(1), "decodeErrorMethod")
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -402,12 +394,12 @@ func TestClient_CallBatch(t *testing.T) {
 	defer client.Close()
 
 	reqs := NewBatch[*Request](2)
-	reqs.Add(NewRequestWithParams(int64(1), "method1", nil))
-	reqs.Add(NewRequestWithParams(int64(2), "method2", NewParams(map[string]int{"a": 1})))
+	reqs.Add(NewRequest(int64(1), "method1"))
+	reqs.Add(NewRequestWithParams(int64(2), "method2", NewParamsObject(map[string]int{"a": 1})))
 
 	expectedResps := NewBatch[*Response](2)
-	expectedResps.Add(&Response{Jsonrpc: V2, Result: NewResult("result1"), ID: NewID(int64(1))})
-	expectedResps.Add(&Response{Jsonrpc: V2, Error: ErrMethodNotFound, ID: NewID(int64(2))})
+	expectedResps.Add(NewResponseWithResult(int64(1), "result1"))
+	expectedResps.Add(NewResponseWithError(int64(2), ErrMethodNotFound))
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -453,10 +445,10 @@ func TestClient_CallBatch_SingleResponse(t *testing.T) {
 	defer client.Close()
 
 	reqs := NewBatch[*Request](1)
-	reqs.Add(NewRequestWithParams(int64(1), "method1", nil))
+	reqs.Add(NewRequest(int64(1), "method1"))
 
 	// Simulate server incorrectly sending a single object response instead of array
-	singleResp := &Response{Jsonrpc: V2, Result: NewResult("result1"), ID: NewID(int64(1))}
+	singleResp := NewResponseWithResult(int64(1), "result1")
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -490,8 +482,8 @@ func TestClient_NotifyBatch(t *testing.T) {
 	defer client.Close()
 
 	notifs := NewBatch[*Notification](2)
-	notifs.Add(NewNotificationWithParams("notify1", nil))
-	notifs.Add(NewNotificationWithParams("notify2", NewParams([]string{"data"})))
+	notifs.Add(NewNotification("notify1"))
+	notifs.Add(NewNotificationWithParams("notify2", NewParamsArray([]string{"data"})))
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -534,11 +526,7 @@ func TestClient_CallRaw(t *testing.T) {
 	defer client.Close()
 
 	rawReq := RawRequest(`{"jsonrpc": "2.0", "method": "rawMethod", "params": [1, 2], "id": "req-raw"}`)
-	expectedResp := &Response{
-		Jsonrpc: V2,
-		Result:  NewResult(3),
-		ID:      NewID("req-raw"),
-	}
+	expectedResp := NewResponseWithResult("req-raw", int(3))
 
 	var wg sync.WaitGroup
 	wg.Add(1)
