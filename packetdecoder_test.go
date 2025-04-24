@@ -392,7 +392,8 @@ func TestPacketConnDecoder_DecodeFrom_EmptyPacket(t *testing.T) {
 	require.Error(t, err) // Expect error because empty data is not valid JSON
 	assert.Equal(t, conn.remoteAddr, addr)
 	// The specific error might be io.EOF from json decoder or a syntax error
-	assert.True(t, errors.Is(err, io.EOF) || errors.As(err, new(*json.SyntaxError)), "Expected EOF or json.SyntaxError for empty packet, got: %v", err)
+	var syntaxError *json.SyntaxError
+	assert.True(t, errors.Is(err, io.EOF) || errors.As(err, &syntaxError), "Expected EOF or json.SyntaxError for empty packet, got: %v", err)
 }
 
 func TestPacketConnDecoder_DecodeFrom_ReadError(t *testing.T) {
