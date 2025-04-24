@@ -71,7 +71,7 @@ func (m *mockReader) SetReadDeadline(t time.Time) error {
 	}
 
 	// Zero time means stop
-	if t.Equal(time.Time{}) {
+	if t.IsZero() {
 		m.readDeadline.Stop()
 		m.deadlineSet = true
 

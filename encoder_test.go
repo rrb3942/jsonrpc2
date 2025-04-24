@@ -19,12 +19,12 @@ import (
 // mockWriter is a helper to simulate different writer behaviors.
 type mockWriter struct {
 	io.Writer
+	writeErr      error
 	closeFn       func() error
-	closeCh       chan struct{} // Channel to signal Close has been called internally
+	closeCh       chan struct{}
 	writeDeadline *time.Timer
 	mu            sync.Mutex
 	deadlineSet   bool
-	writeErr      error // Error to return on Write
 }
 
 func (m *mockWriter) Write(p []byte) (n int, err error) {
@@ -33,26 +33,18 @@ func (m *mockWriter) Write(p []byte) (n int, err error) {
 	writeErr := m.writeErr
 	m.mu.Unlock()
 
-	if deadline {
-		select {
-		case <-m.writeDeadline.C:
-			return 0, os.ErrDeadlineExceeded
-		default:
-			// continue if deadline not exceeded
-		}
-	}
-
 	if writeErr != nil {
 		return 0, writeErr
 	}
 
+	if deadline {
+		<-m.writeDeadline.C
+		return 0, os.ErrDeadlineExceeded
+	}
+
 	if m.closeCh != nil {
-		select {
-		case <-m.closeCh:
-			return 0, io.ErrClosedPipe // Simulate writing to a closed writer
-		default:
-			// continue if not closed
-		}
+		<-m.closeCh
+		return 0, io.ErrClosedPipe // Simulate writing to a closed writer
 	}
 
 	return m.Writer.Write(p)
@@ -61,13 +53,7 @@ func (m *mockWriter) Write(p []byte) (n int, err error) {
 func (m *mockWriter) Close() error {
 	defer func() {
 		if m.closeCh != nil {
-			// Non-blocking send or close to prevent deadlock if Close is called multiple times
-			select {
-			case <-m.closeCh:
-				// Already closed
-			default:
-				close(m.closeCh)
-			}
+			close(m.closeCh)
 		}
 	}()
 
@@ -87,25 +73,14 @@ func (m *mockWriter) SetWriteDeadline(t time.Time) error {
 	defer m.mu.Unlock()
 
 	if m.writeDeadline == nil {
-		// Initialize timer with a very long duration, Reset will set the actual deadline
-		m.writeDeadline = time.NewTimer(24 * time.Hour)
-		if !m.writeDeadline.Stop() {
-			<-m.writeDeadline.C // Drain the channel if Stop returns false
-		}
+		m.writeDeadline = time.NewTimer(time.Until(t))
 	}
 
 	// Zero time means stop the deadline timer
 	if t.IsZero() {
-		if m.deadlineSet { // Only stop if it was previously set
-			if !m.writeDeadline.Stop() {
-				// Attempt to drain the channel, but don't block
-				select {
-				case <-m.writeDeadline.C:
-				default:
-				}
-			}
-			m.deadlineSet = false
-		}
+		m.writeDeadline.Stop()
+		m.deadlineSet = true
+
 		return nil
 	}
 
@@ -116,17 +91,30 @@ func (m *mockWriter) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
+type mockWriteCloser struct {
+	mock *mockWriter
+}
+
+func (mc *mockWriteCloser) Write(p []byte) (n int, err error) {
+	return mc.mock.Write(p)
+}
+
+func (mc *mockWriteCloser) Close() error {
+	return mc.mock.Close()
+}
+
 // Ensure mockWriter implements DeadlineWriter.
 var _ DeadlineWriter = (*mockWriter)(nil)
 
 func TestNewEncoder(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
 	encoder := NewEncoder(&buf)
 	require.NotNil(t, encoder)
 
 	data := map[string]string{"key": "value"}
-	err := encoder.Encode(context.Background(), data)
+	err := encoder.Encode(t.Context(), data)
 	require.NoError(t, err)
 
 	// Check if the output is valid JSON and contains the expected data
@@ -139,11 +127,12 @@ func TestNewEncoder(t *testing.T) {
 
 func TestStreamEncoder_Encode_Success(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
 	encoder := NewStreamEncoder(&buf)
 
-	req := Request{Jsonrpc: Version("2.0"), ID: NewNumberID(1), Method: "test"}
-	err := encoder.Encode(context.Background(), req)
+	req := NewRequest(int64(1), "test")
+	err := encoder.Encode(t.Context(), req)
 	require.NoError(t, err)
 
 	// Check output
@@ -153,15 +142,16 @@ func TestStreamEncoder_Encode_Success(t *testing.T) {
 
 func TestStreamEncoder_Encode_Multiple(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
 	encoder := NewStreamEncoder(&buf)
 
-	req1 := Request{Jsonrpc: Version("2.0"), ID: NewNumberID(1), Method: "test1"}
-	req2 := Request{Jsonrpc: Version("2.0"), ID: NewNumberID(2), Method: "test2"}
+	req1 := NewRequest(int64(1), "test1")
+	req2 := NewRequest(int64(2), "test2")
 
-	err := encoder.Encode(context.Background(), req1)
+	err := encoder.Encode(t.Context(), req1)
 	require.NoError(t, err)
-	err = encoder.Encode(context.Background(), req2)
+	err = encoder.Encode(t.Context(), req2)
 	require.NoError(t, err)
 
 	// Check output - should be two JSON objects separated by newline
@@ -171,12 +161,12 @@ func TestStreamEncoder_Encode_Multiple(t *testing.T) {
 	var res1, res2 Request
 	err = dec.Decode(&res1)
 	require.NoError(t, err)
-	assert.Equal(t, req1.ID, res1.ID)
+	assert.True(t, req1.ID.Equal(res1.ID))
 	assert.Equal(t, req1.Method, res1.Method)
 
 	err = dec.Decode(&res2)
 	require.NoError(t, err)
-	assert.Equal(t, req2.ID, res2.ID)
+	assert.True(t, req2.ID.Equal(res2.ID))
 	assert.Equal(t, req2.Method, res2.Method)
 }
 
@@ -188,7 +178,7 @@ func TestStreamEncoder_SetIdleTimeout_DeadlineWriter(t *testing.T) {
 	timeout := 50 * time.Millisecond
 	encoder.SetIdleTimeout(timeout)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*timeout) // Context longer than idle timeout
+	ctx, cancel := context.WithTimeout(t.Context(), 2*timeout) // Context longer than idle timeout
 	defer cancel()
 
 	data := map[string]string{"key": "value"}
@@ -205,6 +195,7 @@ func TestStreamEncoder_SetIdleTimeout_DeadlineWriter(t *testing.T) {
 
 func TestStreamEncoder_SetIdleTimeout_Closer(t *testing.T) {
 	t.Parallel()
+
 	closed := false
 	closeFn := func() error {
 		closed = true
@@ -212,12 +203,12 @@ func TestStreamEncoder_SetIdleTimeout_Closer(t *testing.T) {
 	}
 	// Use a writer that blocks, but implement Close
 	// Use io.Discard as the base writer, mockWriter handles blocking/closing
-	blockingWriter := &mockWriter{Writer: io.Discard, closeFn: closeFn, closeCh: make(chan struct{})}
+	blockingWriter := &mockWriteCloser{mock: &mockWriter{Writer: io.Discard, closeFn: closeFn, closeCh: make(chan struct{})}}
 	encoder := NewStreamEncoder(blockingWriter)
 	timeout := 50 * time.Millisecond
 	encoder.SetIdleTimeout(timeout)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*timeout)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*timeout)
 	defer cancel()
 
 	data := map[string]string{"key": "value"}
@@ -242,7 +233,7 @@ func TestStreamEncoder_SetIdleTimeout_NoSupport(t *testing.T) {
 	timeout := 50 * time.Millisecond
 	encoder.SetIdleTimeout(timeout) // Should have no effect on Encode timing itself
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*timeout)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*timeout)
 	defer cancel()
 
 	data := map[string]string{"key": "value"}
@@ -281,7 +272,7 @@ func TestStreamEncoder_Encode_ContextCancellation(t *testing.T) {
 	// Set an initial long deadline to make it block
 	require.NoError(t, blockingWriter.SetWriteDeadline(time.Now().Add(1*time.Hour)))
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	data := map[string]string{"key": "value"}
 	errChan := make(chan error, 1)
@@ -337,7 +328,7 @@ func TestStreamEncoder_Encode_Error(t *testing.T) {
 	errorWriter := &mockWriter{Writer: io.Discard, writeErr: writeErr}
 	encoder := NewStreamEncoder(errorWriter)
 	data := map[string]string{"key": "value"}
-	err := encoder.Encode(context.Background(), data)
+	err := encoder.Encode(t.Context(), data)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, writeErr)
 
@@ -345,26 +336,32 @@ func TestStreamEncoder_Encode_Error(t *testing.T) {
 	var buf bytes.Buffer
 	encoder = NewStreamEncoder(&buf)
 	chanData := make(chan int)
-	err = encoder.Encode(context.Background(), chanData)
+	err = encoder.Encode(t.Context(), chanData)
 	require.Error(t, err)
+
 	var jsonErr *json.UnsupportedTypeError
+
 	assert.True(t, errors.As(err, &jsonErr), "Expected a json.UnsupportedTypeError")
 }
 
 func TestLockWriter(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
 	lw := &lockWriter{w: &buf}
 
 	var wg sync.WaitGroup
+
 	numGoroutines := 5
 	numWrites := 10
 	expectedLen := 0
 
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
+
 		go func(g int) {
 			defer wg.Done()
+
 			for j := 0; j < numWrites; j++ {
 				data := []byte{'0' + byte(g), '0' + byte(j), '\n'}
 				n, err := lw.Write(data)
@@ -372,6 +369,7 @@ func TestLockWriter(t *testing.T) {
 				require.Equal(t, len(data), n)
 			}
 		}(i)
+
 		expectedLen += numWrites * 3 // 2 digits + newline
 	}
 
