@@ -51,6 +51,11 @@ func (p *Params) RawMessage() json.RawMessage {
 	return nil
 }
 
+// Value returns the raw values stored. May a raw go type, [json.RawMessage], or nil.
+func (p *Params) Value() any {
+	return p.value
+}
+
 // TypeHint provides a hint for the type of json data contained. See [TypeHint].
 //
 // Returns [TypeNotJSON] if boxed type is not a [json.RawMessage].

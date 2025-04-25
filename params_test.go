@@ -13,12 +13,12 @@ func TestNewParamsArray(t *testing.T) {
 	arr := []int{1, 2, 3}
 	params := NewParamsArray(arr)
 
-	if params.value == nil {
+	if params.Value() == nil {
 		t.Fatal("NewParamsArray resulted in nil value")
 	}
 
-	if !reflect.DeepEqual(params.value, arr) {
-		t.Errorf("Expected value %v, got %v", arr, params.value)
+	if !reflect.DeepEqual(params.Value(), arr) {
+		t.Errorf("Expected value %v, got %v", arr, params.Value())
 	}
 }
 
@@ -28,12 +28,12 @@ func TestNewParamsObject(t *testing.T) {
 	obj := map[string]string{"key": "value"}
 	params := NewParamsObject(obj)
 
-	if params.value == nil {
+	if params.Value() == nil {
 		t.Fatal("NewParamsObject resulted in nil value")
 	}
 
-	if !reflect.DeepEqual(params.value, obj) {
-		t.Errorf("Expected value %v, got %v", obj, params.value)
+	if !reflect.DeepEqual(params.Value(), obj) {
+		t.Errorf("Expected value %v, got %v", obj, params.Value())
 	}
 }
 
@@ -46,13 +46,13 @@ func TestNewParamsRaw(t *testing.T) {
 	// Note: NewParamsRaw currently calls NewParamsArray, so the internal value
 	// will be the raw message itself, not wrapped in another layer.
 	// This might be unexpected based on the name, but we test the current behavior.
-	if params.value == nil {
+	if params.Value() == nil {
 		t.Fatal("NewParamsRaw resulted in nil value")
 	}
 
 	// Check if the underlying value is indeed the raw message
-	if !reflect.DeepEqual(params.value, raw) {
-		t.Errorf("Expected value %v, got %v", raw, params.value)
+	if !reflect.DeepEqual(params.Value(), raw) {
+		t.Errorf("Expected value %v, got %v", raw, params.Value())
 	}
 
 	// Additionally, test RawMessage method for consistency
@@ -298,8 +298,8 @@ func TestParams_UnmarshalJSON(t *testing.T) {
 					t.Fatalf("UnmarshalJSON unexpected error = %v", err)
 				}
 				// Compare internal value directly for simplicity
-				gotRaw, gotOk := p.value.(json.RawMessage)
-				wantRaw, wantOk := tt.want.value.(json.RawMessage)
+				gotRaw, gotOk := p.Value().(json.RawMessage)
+				wantRaw, wantOk := tt.want.Value().(json.RawMessage)
 
 				if gotOk != wantOk || string(gotRaw) != string(wantRaw) {
 					t.Errorf("UnmarshalJSON got = %v, want %v", p, tt.want)
