@@ -60,7 +60,7 @@ func (e *Error) Message() string {
 	return e.err.Message
 }
 
-// Data returns the data present in the error.
+// The pointer returned will never be nil, but may contain a nil value.
 func (e *Error) Data() *ErrorData {
 	return &e.err.Data
 }
