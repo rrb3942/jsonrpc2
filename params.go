@@ -1,3 +1,5 @@
+// Package jsonrpc2 provides types and functions for implementing JSON-RPC 2.0 clients and servers.
+// This file specifically defines the `Params` type used for request parameters.
 package jsonrpc2
 
 import (
@@ -6,11 +8,15 @@ import (
 	"fmt"
 )
 
+// ErrInvalidParameters indicates that the provided parameters are invalid according to the JSON-RPC 2.0 specification (e.g., not an object or array).
 var ErrInvalidParameters = errors.New("Invalid parameters")
+
+// ErrNotRawMessage indicates that an operation expected the internal value to be a [json.RawMessage], but it was not.
 var ErrNotRawMessage = errors.New("Value is it not a raw message")
+
 var errInvalidParamDecode = fmt.Errorf("%w (%w)", ErrDecoding, ErrInvalidParameters)
 
-// Params represent the params member of a jsonrpc2 [Request]
+// Params represent the params member of a jsonrpc2 [Request] ([Request.Params]).
 //
 // Params always decodes to a [json.RawMessage] internally.
 //
@@ -20,27 +26,40 @@ type Params struct {
 }
 
 // NewParamsArray returns a new [Params] with its value set to v.
+// The underlying value will be the provided slice.
 //
-// v must be a slice type.
+// Example:
+//
+//	params := jsonrpc2.NewParamsArray([]any{1, "hello", true})
+//	// params.Value() will be []any{1, "hello", true}
 func NewParamsArray[V any, P ~[]V](v P) Params {
 	return Params{value: v}
 }
 
 // NewParamsObject returns a new [Params] with its value set to v.
+// The underlying value will be the provided map.
 //
-// v must be a map type.
+// Example:
+//
+//	user := map[string]any{"name": "Alice", "age": 30}
+//	params := jsonrpc2.NewParamsObject(user)
+//	// params.Value() will be map[string]any{"name":"Alice", "age":30}
 func NewParamsObject[K comparable, V any, P ~map[K]V](v P) Params {
 	return Params{value: v}
 }
 
-// NewParamsRaw returns a new [Params] with its value set to v.
+// NewParamsRaw returns a new [Params] wrapping the provided [json.RawMessage].
+// This is useful when you have parameters already encoded as JSON and want to
+// include them directly in a request without further encoding/decoding cycles
+// until the final processing stage.
 //
-// It only accepts a json.RawMessage.
+// It is also used when you need to Marshal a custom struct to use a parameters.
 func NewParamsRaw(v json.RawMessage) Params {
+	// Note: Internally uses NewParamsArray, treating RawMessage as []byte.
 	return NewParamsArray(v)
 }
 
-// RawMessage returns the [json.RawMessage] stored.
+// RawMessage returns the internally stored [json.RawMessage].
 //
 // If the stored value is not a [json.RawMessage] nil is returned.
 func (p *Params) RawMessage() json.RawMessage {
@@ -51,14 +70,14 @@ func (p *Params) RawMessage() json.RawMessage {
 	return nil
 }
 
-// Value returns the raw values stored. May a raw go type, [json.RawMessage], or nil.
+// Value returns the raw internal value. May be a raw go type, [json.RawMessage], or nil.
 func (p *Params) Value() any {
 	return p.value
 }
 
-// TypeHint provides a hint for the type of json data contained. See [TypeHint].
+// TypeHint provides a hint for the type of json data contained within the [Params]. See [TypeHint].
 //
-// Returns [TypeNotJSON] if boxed type is not a [json.RawMessage].
+// Returns [TypeNotJSON] if the underlying type is not a [json.RawMessage].
 func (p *Params) TypeHint() TypeHint {
 	if m, ok := p.value.(json.RawMessage); ok {
 		return jsonHintType(m)
@@ -67,9 +86,9 @@ func (p *Params) TypeHint() TypeHint {
 	return TypeNotJSON
 }
 
-// Unmarshal will unmarshal the store [json.RawMessage] into v, returning any errors.
+// Unmarshal will unmarshal the internally stored [json.RawMessage] into v, returning any errors.
 //
-// If a [json.RawMessage] is not stored it will return [ErrNotRawMessage].
+// If a [json.RawMessage] is not stored internally, it will return [ErrNotRawMessage].
 func (p *Params) Unmarshal(v any) error {
 	if raw, ok := p.value.(json.RawMessage); ok {
 		return Unmarshal(raw, v)
@@ -78,9 +97,9 @@ func (p *Params) Unmarshal(v any) error {
 	return ErrNotRawMessage
 }
 
-// IsZero returns if Params its zero value.
+// IsZero returns if [Params] represents its zero value.
 //
-// IsZero is true if Params contains nil or a [json.RawMessage] or length 0.
+// IsZero is true if the internal value is nil or it contains a [json.RawMessage] of length 0.
 func (p *Params) IsZero() bool {
 	if p.value == nil {
 		return true
@@ -94,6 +113,9 @@ func (p *Params) IsZero() bool {
 }
 
 // UnmarshalJSON implements the [json.Unmarshaler] interface.
+// It ensures that the incoming JSON data represents either a JSON object or array,
+// as required by the JSON-RPC 2.0 specification for the 'params' field.
+// The raw JSON data is stored internally for potential later unmarshalling into a specific Go type via the [Params.Unmarshal] method.
 func (p *Params) UnmarshalJSON(data []byte) error {
 	// Must be an object or array
 	switch jsonHintType(data) {
