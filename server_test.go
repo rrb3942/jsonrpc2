@@ -90,8 +90,8 @@ func (m *mockListener) SetAcceptError(err error) {
 type mockNetConn struct {
 	io.Reader
 	io.Writer
-	closeFunc func() error
-	localAddr net.Addr
+	closeFunc  func() error
+	localAddr  net.Addr
 	remoteAddr net.Addr
 	deadline   *time.Timer
 	mu         sync.Mutex
@@ -99,9 +99,9 @@ type mockNetConn struct {
 
 func newMockNetConn(r io.Reader, w io.Writer) *mockNetConn {
 	return &mockNetConn{
-		Reader: r,
-		Writer: w,
-		localAddr: &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 1234},
+		Reader:     r,
+		Writer:     w,
+		localAddr:  &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 1234},
 		remoteAddr: &net.TCPAddr{IP: net.ParseIP("198.51.100.1"), Port: 5678},
 	}
 }
@@ -143,7 +143,6 @@ func (m *mockNetConn) SetWriteDeadline(t time.Time) error {
 	return m.SetDeadline(t) // Simplified for mock
 }
 
-
 func TestNewServer(t *testing.T) {
 	handler := &mockHandler{}
 	server := NewServer(handler)
@@ -172,14 +171,14 @@ func TestServer_ListenAndServe_SchemeRouting(t *testing.T) {
 		expectError error
 		expectType  string // "conn", "packet", "http", "error"
 	}{
-		{"tcp", "tcp://127.0.0.1:0", net.ErrClosed, "conn"}, // Use port 0 for auto-assign, expect ErrClosed on cancel
-		{"tcp4", "tcp4://127.0.0.1:0", net.ErrClosed, "conn"},
-		{"tcp6", "tcp6://[::1]:0", net.ErrClosed, "conn"},
-		{"udp", "udp://127.0.0.1:0", net.ErrClosed, "packet"},
-		{"udp4", "udp4://127.0.0.1:0", net.ErrClosed, "packet"},
-		{"udp6", "udp6://[::1]:0", net.ErrClosed, "packet"},
-		{"http", "http://127.0.0.1:0", http.ErrServerClosed, "http"},
-		{"unix", "unix://" + filepath.Join(t.TempDir(), "test.sock"), net.ErrClosed, "conn"},
+		{"tcp", "tcp:127.0.0.1:0", net.ErrClosed, "conn"}, // Use port 0 for auto-assign, expect ErrClosed on cancel
+		{"tcp4", "tcp4:127.0.0.1:0", net.ErrClosed, "conn"},
+		{"tcp6", "tcp6:[::1]:0", net.ErrClosed, "conn"},
+		{"udp", "udp:127.0.0.1:0", net.ErrClosed, "packet"},
+		{"udp4", "udp4:127.0.0.1:0", net.ErrClosed, "packet"},
+		{"udp6", "udp6:[::1]:0", net.ErrClosed, "packet"},
+		{"http", "http://127.0.0.1:8080", http.ErrServerClosed, "http"},
+		{"unix", "unix:" + filepath.Join(t.TempDir(), "test.sock"), net.ErrClosed, "conn"},
 		{"unixgram", "unixgram://" + filepath.Join(t.TempDir(), "testgram.sock"), net.ErrClosed, "packet"},
 		// unixpacket might not be supported on all platforms, skip for broad compatibility or add build tags
 		// {"unixpacket", "unixpacket:///tmp/testpacket.sock", net.ErrClosed, "packet"},
@@ -247,6 +246,9 @@ func TestServer_Serve(t *testing.T) {
 
 	listener.InjectConn(mockNetConn)
 
+	// Cancel the context to stop the server
+	cancel()
+
 	// Wait for the connection to be processed (or timeout)
 	// We expect the RPCServer.Run inside Serve to block until context cancel or conn close
 	select {
@@ -255,9 +257,6 @@ func TestServer_Serve(t *testing.T) {
 	case <-time.After(2 * time.Second): // Increased timeout
 		t.Fatal("Timeout waiting for mock connection to be closed")
 	}
-
-	// Cancel the context to stop the server
-	cancel()
 
 	// Wait for Serve goroutine to exit
 	wg.Wait()
@@ -359,7 +358,6 @@ func TestServer_Serve_WithBinder(t *testing.T) {
 	assert.True(t, errors.Is(err, context.Canceled) || errors.Is(err, net.ErrClosed), "Serve error should be context.Canceled or net.ErrClosed")
 }
 
-
 func TestServer_ServePacket(t *testing.T) {
 	handler := &mockHandler{}
 	server := NewServer(handler)
@@ -423,7 +421,7 @@ func TestServer_ServePacket_WithBinder(t *testing.T) {
 	handler := &mockHandler{}
 	binder := newMockBinder()
 	server := NewServer(handler)
-	server.Binder = binder // Assign the binder
+	server.Binder = binder    // Assign the binder
 	server.PacketRoutines = 1 // Simplify test with one routine
 
 	mockPC := newMockPacketConn()
@@ -466,7 +464,6 @@ func TestServer_ServePacket_WithBinder(t *testing.T) {
 	// Ensure main context cancel doesn't interfere if already stopped
 	cancel()
 }
-
 
 func TestServer_listenAndServeHTTP(t *testing.T) {
 	handler := &mockHandler{
