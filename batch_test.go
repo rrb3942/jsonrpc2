@@ -261,9 +261,9 @@ func TestBatchCorrelate(t *testing.T) {
 		// Stop after the first correlation (req1 <-> res1)
 		return req == nil && res == nil // Only continue if both are nil (never happens)
 	})
-	tassert.Len(results, 1, "Should have stopped after the first correlation")
-	tassert.Equal(req1, results[0].req)
-	tassert.Equal(res1, results[0].res)
+	assert.Len(t, results, 1, "Should have stopped after the first correlation")
+	assert.Equal(t, req1, results[0].req)
+	assert.Equal(t, res1, results[0].res)
 
 	// Test with empty requests
 	results = make([]correlationResult, 0)
