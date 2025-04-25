@@ -74,13 +74,19 @@ func assertJSONMatch(t *testing.T, expected, actual []byte) {
 func TestNewStreamServer(t *testing.T) {
 	t.Parallel()
 	handler := &mockHandler{}
-	rw := newMockReadWriter(nil)
-	decoder := NewDecoder(rw)
-	encoder := NewEncoder(rw)
-	rp := NewStreamServer(decoder, encoder, handler)
+	// Use the setup helper to get a valid server instance with mockConn
+	clientWriter, _, conn, rp := setupTestStreamServer(handler)
+	defer conn.Close()
+	defer clientWriter.Close()
+
+	// The test primarily checks the fields of the created RPCServer
 	require.NotNil(t, rp)
 	assert.Equal(t, handler, rp.Handler)
-	assert.NotNil(t, rp.decoder)
+	// Check that the internal decoder/encoder are shims wrapping the mockConn
+	_, decOk := rp.decoder.(*decoderShim)
+	assert.True(t, decOk, "Internal decoder should be a shim")
+	_, encOk := rp.encoder.(*encoderShim)
+	assert.True(t, encOk, "Internal encoder should be a shim")
 	assert.NotNil(t, rp.encoder)
 	assert.False(t, rp.SerialBatch)
 	assert.False(t, rp.NoRoutines)
@@ -654,11 +660,11 @@ func TestRPCServer_Callbacks(t *testing.T) {
 		},
 	}
 	// Use packet conn to easily simulate encoding errors
-	conn := newMockPacketConn()
+	packetConn := newMockPacketConn() // Renamed variable to avoid confusion
 	// Force encoding error
-	conn.writeErr = errors.New("forced encoding error")
+	packetConn.writeErr = errors.New("forced encoding error")
 
-	rp := NewRPCServerFromPacket(conn, handler)
+	rp := NewRPCServerFromPacket(packetConn, handler)
 
 	rp.Callbacks.OnExit = func(ctx context.Context, err error) {
 		onExitCalled.Store(true)
@@ -685,15 +691,15 @@ func TestRPCServer_Callbacks(t *testing.T) {
 	}
 
 	// 1. Trigger Decode Error
-	conn.SendData([]byte(`{invalid json`))
+	packetConn.SendData([]byte(`{invalid json`))
 	// 2. Trigger Encode Error (via normal request)
-	conn.SendData([]byte(`{"jsonrpc": "2.0", "method": "normal", "id": 101}`))
+	packetConn.SendData([]byte(`{"jsonrpc": "2.0", "method": "normal", "id": 101}`))
 	// 3. Trigger Panic
-	conn.SendData([]byte(`{"jsonrpc": "2.0", "method": "makePanic", "id": 102}`))
+	packetConn.SendData([]byte(`{"jsonrpc": "2.0", "method": "makePanic", "id": 102}`))
 	// 4. Trigger Encode Error (via handler error response) - write error still set
-	conn.SendData([]byte(`{"jsonrpc": "2.0", "method": "makeError", "id": 103}`))
+	packetConn.SendData([]byte(`{"jsonrpc": "2.0", "method": "makeError", "id": 103}`))
 	// 5. Trigger Encode Error (via batch response) - write error still set
-	conn.SendData([]byte(`[{"jsonrpc": "2.0", "method": "batchA", "id": 104}, {"jsonrpc": "2.0", "method": "batchB", "id": 105}]`))
+	packetConn.SendData([]byte(`[{"jsonrpc": "2.0", "method": "batchA", "id": 104}, {"jsonrpc": "2.0", "method": "batchB", "id": 105}]`))
 
 	// Run server briefly and cancel
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
