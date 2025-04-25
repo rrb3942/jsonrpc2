@@ -107,6 +107,36 @@ func newMockNetConn(r io.Reader, w io.Writer) *mockNetConn {
 	}
 }
 
+func (m *mockNetConn) Read(b []byte) (n int, err error) {
+	m.mu.Lock()
+	deadline := m.deadlineTime
+	m.mu.Unlock()
+
+	// Check if deadline has already passed
+	if !deadline.IsZero() && time.Now().After(deadline) {
+		return 0, os.ErrDeadlineExceeded
+	}
+
+	// Basic implementation using the embedded reader
+	// Note: This mock doesn't fully simulate blocking reads waiting for the deadline timer.
+	// It primarily checks if the deadline *was* set and has passed *before* the read attempt.
+	return m.Reader.Read(b)
+}
+
+func (m *mockNetConn) Write(b []byte) (n int, err error) {
+	m.mu.Lock()
+	deadline := m.deadlineTime
+	m.mu.Unlock()
+
+	// Check if deadline has already passed
+	if !deadline.IsZero() && time.Now().After(deadline) {
+		return 0, os.ErrDeadlineExceeded
+	}
+
+	// Basic implementation using the embedded writer
+	return m.Writer.Write(b)
+}
+
 func (m *mockNetConn) Close() error {
 	if m.closeFunc != nil {
 		return m.closeFunc()
@@ -125,9 +155,11 @@ func (m *mockNetConn) RemoteAddr() net.Addr {
 func (m *mockNetConn) SetDeadline(t time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.deadline == nil {
-		m.deadline = time.NewTimer(time.Until(t))
-	} else {
+
+	m.deadlineTime = t // Store the actual deadline time
+
+	// Stop existing timer if it exists
+	if m.deadline != nil {
 		if !m.deadline.Stop() {
 			// Try to drain the channel if Stop returns false, but don't block indefinitely
 			select {
@@ -135,9 +167,21 @@ func (m *mockNetConn) SetDeadline(t time.Time) error {
 			default:
 			}
 		}
+	}
+
+	// If the deadline is zero or in the past, don't start a timer
+	if t.IsZero() || time.Until(t) <= 0 {
+		m.deadline = nil // Ensure no active timer
+		return nil
+	}
+
+	// Set up a new timer
+	if m.deadline == nil {
+		m.deadline = time.NewTimer(time.Until(t))
+	} else {
 		m.deadline.Reset(time.Until(t))
 	}
-	m.deadlineTime = t // Store the actual deadline time
+
 	return nil
 }
 
