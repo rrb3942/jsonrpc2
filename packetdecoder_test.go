@@ -175,6 +175,13 @@ func (m *mockPacketConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
+// SetReadError sets an error to be returned by the next ReadFrom call.
+func (m *mockPacketConn) SetReadError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.readErr = err
+}
+
 // Helper to send data to the mock connection.
 func (m *mockPacketConn) SendData(data []byte) {
 	m.readChan <- data
