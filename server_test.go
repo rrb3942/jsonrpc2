@@ -353,6 +353,7 @@ func TestServer_ListenAndServe_SchemeRouting(t *testing.T) {
 			if tt.expectError != nil {
 				require.Error(t, err, "ListenAndServe should return an error for %s", tt.uri)
 				// Use errors.Is for wrapped errors, check type for others
+				//nolint:gocritic //If we edit this, remake to switch statement
 				if errors.Is(tt.expectError, net.ErrClosed) || errors.Is(tt.expectError, http.ErrServerClosed) {
 					// These errors occur because the context timed out / was cancelled quickly, which is expected
 					assert.ErrorIs(t, err, tt.expectError, "Error should be or wrap %T for %s", tt.expectError, tt.uri)
