@@ -245,7 +245,7 @@ func TestServer_Serve(t *testing.T) {
 		return connReadPipe.Close() // Close reader to unblock potential reads
 	}
 
-	listener.InjectConn(mockConn)
+	listener.InjectConn(mockNetConn)
 
 	// Wait for the connection to be processed (or timeout)
 	// We expect the RPCServer.Run inside Serve to block until context cancel or conn close
@@ -324,7 +324,7 @@ func TestServer_Serve_WithBinder(t *testing.T) {
 	connClosed := make(chan struct{})
 	mockNetConn.closeFunc = func() error { close(connClosed); return connReadPipe.Close() }
 
-	listener.InjectConn(mockConn)
+	listener.InjectConn(mockNetConn)
 
 	// Wait for Binder.Bind to be called
 	select {
@@ -496,10 +496,6 @@ func TestServer_listenAndServeHTTP(t *testing.T) {
 		httpHandler.ServeHTTP(w, r)
 	}))
 	defer testServer.Close()
-
-	// Parse the test server URL to pass to listenAndServeHTTP (though we mock the actual listening)
-	serverURL, err := url.Parse(testServer.URL + "/rpc")
-	require.NoError(t, err)
 
 	// --- Test successful request ---
 	reqBody := `{"jsonrpc":"2.0", "method":"echo", "id": 1}`
