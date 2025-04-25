@@ -72,6 +72,7 @@ func NewClientPoolWithDialer(nctx context.Context, config ClientPoolConfig, dial
 	}
 
 	if config.MaxSize <= 0 {
+		//nolint:gosec,mnd //How many cpus do you think we have? Puddle requires int32.
 		config.MaxSize = int32(min(runtime.NumCPU(), runtime.GOMAXPROCS(-1)) * 2)
 	}
 
