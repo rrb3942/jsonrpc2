@@ -23,16 +23,17 @@ import (
 
 // mockListener implements net.Listener for testing Serve.
 type mockListener struct {
+	addr       net.Addr
+	acceptErr  error
 	acceptChan chan net.Conn
 	closeChan  chan struct{}
-	addr       net.Addr
 	mu         sync.Mutex
 	closed     bool
-	acceptErr  error // Error to return on Accept
 }
 
 func newMockListener(addr string) *mockListener {
 	tcpAddr, _ := net.ResolveTCPAddr("tcp", addr) // Use TCPAddr for simplicity
+
 	return &mockListener{
 		acceptChan: make(chan net.Conn),
 		closeChan:  make(chan struct{}),
@@ -49,6 +50,7 @@ func (m *mockListener) Accept() (net.Conn, error) {
 	if closed {
 		return nil, net.ErrClosed
 	}
+
 	if acceptErr != nil {
 		return nil, acceptErr
 	}
@@ -64,11 +66,14 @@ func (m *mockListener) Accept() (net.Conn, error) {
 func (m *mockListener) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	if m.closed {
 		return net.ErrClosed
 	}
+
 	m.closed = true
 	close(m.closeChan)
+
 	return nil
 }
 
@@ -88,17 +93,17 @@ func (m *mockListener) SetAcceptError(err error) {
 
 // mockNetConn implements net.Conn for testing.
 type mockNetConn struct {
+	deadlineTime time.Time
 	io.Reader
 	io.Writer
+	localAddr  net.Addr
+	remoteAddr net.Addr
 	closeFunc  func() error
-	localAddr    net.Addr
-	remoteAddr   net.Addr
-	deadline     *time.Timer
-	deadlineTime time.Time // Store the actual deadline time
-	mu           sync.Mutex
-	readChan     chan []byte   // Channel for proxyReads to send data/errors
-	readReq      chan struct{} // Channel for Read to request data from proxy
-	readMu       sync.Mutex    // Ensure only one Read call interacts with proxy at a time
+	deadline   *time.Timer
+	readChan   chan []byte
+	readReq    chan struct{}
+	mu         sync.Mutex
+	readMu     sync.Mutex
 }
 
 func newMockNetConn(r io.Reader, w io.Writer) *mockNetConn {
@@ -107,17 +112,23 @@ func newMockNetConn(r io.Reader, w io.Writer) *mockNetConn {
 		Writer:     w,
 		localAddr:  &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 1234},
 		remoteAddr: &net.TCPAddr{IP: net.ParseIP("198.51.100.1"), Port: 5678},
-		readChan:   make(chan []byte, 1),    // Buffer 1 read result/error signal
+		readChan:   make(chan []byte, 1),   // Buffer 1 read result/error signal
 		readReq:    make(chan struct{}, 1), // Buffer 1 read request
+		deadline:   time.NewTimer(10 * time.Second),
 	}
+
+	mc.deadline.Stop()
+
 	// Start a goroutine to proxy reads from the underlying reader
 	go mc.proxyReads()
+
 	return mc
 }
 
 // proxyReads runs in a goroutine, handling blocking reads from the underlying Reader.
 func (m *mockNetConn) proxyReads() {
 	buf := make([]byte, 4096) // Reasonable buffer size
+
 	for {
 		// Wait for a read request from the Read method
 		_, ok := <-m.readReq
@@ -136,6 +147,7 @@ func (m *mockNetConn) proxyReads() {
 			}
 			// For other errors, signal with nil slice for now
 			m.readChan <- nil
+
 			continue // Allow further read attempts if needed
 		}
 
@@ -182,6 +194,7 @@ func (m *mockNetConn) Read(b []byte) (n int, err error) {
 			// Channel closed by proxy, indicating EOF or pipe closed
 			return 0, io.EOF
 		}
+
 		if data == nil {
 			// Proxy signaled an error other than EOF/close
 			// Return a generic error; specific error info isn't passed via nil signal
@@ -189,6 +202,7 @@ func (m *mockNetConn) Read(b []byte) (n int, err error) {
 		}
 		// Got data
 		n = copy(b, data)
+
 		return n, nil
 	case <-deadlineC:
 		// Deadline timer fired while waiting for read result
@@ -234,11 +248,13 @@ func (m *mockNetConn) Close() error {
 			errs = append(errs, err)
 		}
 	}
+
 	if wc, ok := m.Writer.(io.Closer); ok {
 		if err := wc.Close(); err != nil && !errors.Is(err, os.ErrClosed) { // Ignore already closed error
 			errs = append(errs, err)
 		}
 	}
+
 	return errors.Join(errs...)
 }
 
@@ -256,29 +272,16 @@ func (m *mockNetConn) SetDeadline(t time.Time) error {
 
 	m.deadlineTime = t // Store the actual deadline time
 
-	// Stop existing timer if it exists
 	if m.deadline != nil {
-		if !m.deadline.Stop() {
-			// Try to drain the channel if Stop returns false, but don't block indefinitely
-			select {
-			case <-m.deadline.C:
-			default:
-			}
-		}
+		m.deadline.Stop()
 	}
 
 	// If the deadline is zero or in the past, don't start a timer
-	if t.IsZero() || time.Until(t) <= 0 {
-		m.deadline = nil // Ensure no active timer
+	if t.IsZero() {
 		return nil
 	}
 
-	// Set up a new timer
-	if m.deadline == nil {
-		m.deadline = time.NewTimer(time.Until(t))
-	} else {
-		m.deadline.Reset(time.Until(t))
-	}
+	m.deadline.Reset(time.Until(t))
 
 	return nil
 }
@@ -303,6 +306,7 @@ func TestNewServer(t *testing.T) {
 	assert.NotNil(t, server.NewPacketDecoder, "NewPacketDecoder should be set to default")
 	assert.Equal(t, time.Duration(DefaultHTTPReadTimeout)*time.Second, server.HTTPReadTimeout, "HTTPReadTimeout should have default value")
 	assert.Equal(t, time.Duration(DefaultHTTPShutdownTimeout)*time.Second, server.HTTPShutdownTimeout, "HTTPShutdownTimeout should have default value")
+
 	expectedPacketRoutines := min(runtime.NumCPU(), runtime.GOMAXPROCS(-1))
 	assert.Equal(t, expectedPacketRoutines, server.PacketRoutines, "PacketRoutines should have default value")
 }
@@ -310,9 +314,11 @@ func TestNewServer(t *testing.T) {
 func TestServer_ListenAndServe_SchemeRouting(t *testing.T) {
 	handler := &mockHandler{}
 	server := NewServer(handler)
+
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel() // Ensure context is cancelled eventually
 
+	//nolint:govet //Do not reorder test struct
 	tests := []struct {
 		name        string
 		uri         string
@@ -336,7 +342,6 @@ func TestServer_ListenAndServe_SchemeRouting(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			// Use a short timeout context for listen calls to prevent hangs
 			listenCtx, listenCancel := context.WithTimeout(ctx, 100*time.Millisecond)
@@ -360,7 +365,6 @@ func TestServer_ListenAndServe_SchemeRouting(t *testing.T) {
 				// but check for no error if tt.expectError was nil.
 				assert.NoError(t, err, "ListenAndServe should not return an error for %s", tt.uri)
 			}
-
 			// We can't easily verify the *type* of listener started without more complex mocks or reflection.
 			// The error checking above gives some confidence the correct path was taken.
 		})
@@ -371,11 +375,14 @@ func TestServer_Serve(t *testing.T) {
 	handler := &mockHandler{}
 	server := NewServer(handler)
 	listener := newMockListener("127.0.0.1:12345")
+
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	var wg sync.WaitGroup
+
 	wg.Add(1)
+
 	serveErr := make(chan error, 1)
 
 	go func() {
@@ -388,7 +395,11 @@ func TestServer_Serve(t *testing.T) {
 	mockNetConn := newMockNetConn(connReadPipe, connWritePipe)
 	connClosed := make(chan struct{})
 	mockNetConn.closeFunc = func() error { // Ensure close is tracked
-		close(connClosed)
+		select {
+		case <-connClosed:
+		default:
+			close(connClosed)
+		}
 		// Close the writer pipe to signal EOF to the reader side (proxyReads)
 		return connWritePipe.Close()
 	}
@@ -419,6 +430,7 @@ func TestServer_Serve(t *testing.T) {
 	// Test Accept error
 	ctxErr, cancelErr := context.WithCancel(t.Context())
 	defer cancelErr()
+
 	listenerErr := newMockListener("127.0.0.1:12346")
 	expectedErr := errors.New("accept failed")
 	listenerErr.SetAcceptError(expectedErr)
@@ -428,7 +440,9 @@ func TestServer_Serve(t *testing.T) {
 	assert.ErrorIs(t, err, expectedErr, "Serve error should wrap the Accept error")
 }
 
-// mockBinder for testing Binder integration
+// mockBinder for testing Binder integration.
+//
+//nolint:containedctx //For testing
 type mockBinder struct {
 	bindCalled chan struct{}
 	boundCtx   context.Context
@@ -454,11 +468,14 @@ func TestServer_Serve_WithBinder(t *testing.T) {
 	server.Binder = binder // Assign the binder
 
 	listener := newMockListener("127.0.0.1:12347")
+
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	var wg sync.WaitGroup
+
 	wg.Add(1)
+
 	serveErr := make(chan error, 1)
 
 	go func() {
@@ -471,7 +488,15 @@ func TestServer_Serve_WithBinder(t *testing.T) {
 	mockNetConn := newMockNetConn(connReadPipe, connWritePipe)
 	connClosed := make(chan struct{})
 	// Close the writer pipe to signal EOF to the reader side (proxyReads)
-	mockNetConn.closeFunc = func() error { close(connClosed); return connWritePipe.Close() }
+	mockNetConn.closeFunc = func() error {
+		select {
+		case <-connClosed:
+		default:
+			close(connClosed)
+		}
+
+		return connWritePipe.Close()
+	}
 
 	listener.InjectConn(mockNetConn)
 
@@ -513,11 +538,14 @@ func TestServer_ServePacket(t *testing.T) {
 	server := NewServer(handler)
 	server.PacketRoutines = 2 // Use multiple routines for testing
 	mockPC := newMockPacketConn()
+
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	var wg sync.WaitGroup
+
 	wg.Add(1)
+
 	serveErr := make(chan error, 1)
 
 	go func() {
@@ -551,12 +579,13 @@ func TestServer_ServePacket(t *testing.T) {
 	}
 
 	// Verify context contains the packet conn
-	pCtx := context.WithValue(context.Background(), CtxNetPacketConn, mockPC)
+	pCtx := context.WithValue(t.Context(), CtxNetPacketConn, mockPC)
 	assert.Equal(t, mockPC, pCtx.Value(CtxNetPacketConn), "Context should contain the net.PacketConn")
 
 	// Test ReadFrom error propagation
 	ctxErr, cancelErr := context.WithCancel(t.Context())
 	defer cancelErr()
+
 	mockPCErr := newMockPacketConn()
 	expectedErr := errors.New("readfrom failed")
 	mockPCErr.SetReadError(expectedErr) // Set error to be returned by ReadFrom
@@ -575,11 +604,14 @@ func TestServer_ServePacket_WithBinder(t *testing.T) {
 	server.PacketRoutines = 1 // Simplify test with one routine
 
 	mockPC := newMockPacketConn()
+
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	var wg sync.WaitGroup
+
 	wg.Add(1)
+
 	serveErr := make(chan error, 1)
 
 	go func() {
@@ -619,7 +651,8 @@ func TestServer_listenAndServeHTTP(t *testing.T) {
 	handler := &mockHandler{
 		handleFunc: func(ctx context.Context, req *Request) (any, error) {
 			// Check context propagation
-			httpReq := ctx.Value(CtxHTTPRequest).(*http.Request)
+			httpReq, ok := ctx.Value(CtxHTTPRequest).(*http.Request)
+			assert.True(t, ok, "Should be an *http.Request")
 			assert.NotNil(t, httpReq, "Context should contain HTTPRequest")
 			assert.Equal(t, "/rpc", httpReq.URL.Path)
 
@@ -648,11 +681,13 @@ func TestServer_listenAndServeHTTP(t *testing.T) {
 	reqBody := `{"jsonrpc":"2.0", "method":"echo", "id": 1}`
 	resp, err := http.Post(testServer.URL+"/rpc", "application/json", strings.NewReader(reqBody))
 	require.NoError(t, err, "HTTP POST request failed")
+
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "HTTP status code should be OK")
 	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
+
 	expectedResp := `{"jsonrpc":"2.0","result":"echo_response","id":1}`
 	assert.JSONEq(t, expectedResp, string(respBody), "HTTP response body mismatch")
 
@@ -673,6 +708,7 @@ func TestServer_listenAndServeHTTP(t *testing.T) {
 	// Create a temporary listener to get a free port
 	tempLn, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
+
 	addr := tempLn.Addr().String()
 	require.NoError(t, tempLn.Close()) // Close immediately, we just needed the address
 
@@ -700,7 +736,7 @@ func TestServer_listenAndServeHTTP(t *testing.T) {
 	}
 }
 
-// Helper to clean up unix sockets if they exist
+// Helper to clean up unix sockets if they exist.
 func cleanupSocket(path string) {
 	if _, err := os.Stat(path); err == nil {
 		os.Remove(path)
@@ -711,11 +747,13 @@ func TestServer_ListenAndServe_Unix(t *testing.T) {
 	// Test Unix Domain Socket (connection-oriented)
 	handler := &mockHandler{}
 	server := NewServer(handler)
+
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond) // Short timeout
 	defer cancel()
 
 	sockPath := filepath.Join(t.TempDir(), "test_conn.sock")
 	cleanupSocket(sockPath) // Ensure clean state
+
 	defer cleanupSocket(sockPath)
 	uri := "unix://" + sockPath
 
@@ -728,11 +766,13 @@ func TestServer_ListenAndServe_UnixGram(t *testing.T) {
 	// Test Unix Domain Socket (packet-oriented)
 	handler := &mockHandler{}
 	server := NewServer(handler)
+
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond) // Short timeout
 	defer cancel()
 
 	sockPath := filepath.Join(t.TempDir(), "test_gram.sock")
 	cleanupSocket(sockPath) // Ensure clean state
+
 	defer cleanupSocket(sockPath)
 	uri := "unixgram://" + sockPath
 
