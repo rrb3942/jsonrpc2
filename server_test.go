@@ -86,8 +86,8 @@ func (m *mockListener) SetAcceptError(err error) {
 	m.mu.Unlock()
 }
 
-// mockConn implements net.Conn for testing.
-type mockConn struct {
+// mockNetConn implements net.Conn for testing.
+type mockNetConn struct {
 	io.Reader
 	io.Writer
 	closeFunc func() error
@@ -97,8 +97,8 @@ type mockConn struct {
 	mu         sync.Mutex
 }
 
-func newMockConn(r io.Reader, w io.Writer) *mockConn {
-	return &mockConn{
+func newMockNetConn(r io.Reader, w io.Writer) *mockNetConn {
+	return &mockNetConn{
 		Reader: r,
 		Writer: w,
 		localAddr: &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 1234},
@@ -106,22 +106,22 @@ func newMockConn(r io.Reader, w io.Writer) *mockConn {
 	}
 }
 
-func (m *mockConn) Close() error {
+func (m *mockNetConn) Close() error {
 	if m.closeFunc != nil {
 		return m.closeFunc()
 	}
 	return nil
 }
 
-func (m *mockConn) LocalAddr() net.Addr {
+func (m *mockNetConn) LocalAddr() net.Addr {
 	return m.localAddr
 }
 
-func (m *mockConn) RemoteAddr() net.Addr {
+func (m *mockNetConn) RemoteAddr() net.Addr {
 	return m.remoteAddr
 }
 
-func (m *mockConn) SetDeadline(t time.Time) error {
+func (m *mockNetConn) SetDeadline(t time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.deadline == nil {
@@ -135,11 +135,11 @@ func (m *mockConn) SetDeadline(t time.Time) error {
 	return nil
 }
 
-func (m *mockConn) SetReadDeadline(t time.Time) error {
+func (m *mockNetConn) SetReadDeadline(t time.Time) error {
 	return m.SetDeadline(t) // Simplified for mock
 }
 
-func (m *mockConn) SetWriteDeadline(t time.Time) error {
+func (m *mockNetConn) SetWriteDeadline(t time.Time) error {
 	return m.SetDeadline(t) // Simplified for mock
 }
 
@@ -238,9 +238,9 @@ func TestServer_Serve(t *testing.T) {
 
 	// Inject a connection
 	connReadPipe, connWritePipe := io.Pipe()
-	mockConn := newMockConn(connReadPipe, connWritePipe)
+	mockNetConn := newMockNetConn(connReadPipe, connWritePipe)
 	connClosed := make(chan struct{})
-	mockConn.closeFunc = func() error { // Ensure close is tracked
+	mockNetConn.closeFunc = func() error { // Ensure close is tracked
 		close(connClosed)
 		return connReadPipe.Close() // Close reader to unblock potential reads
 	}
@@ -320,9 +320,9 @@ func TestServer_Serve_WithBinder(t *testing.T) {
 
 	// Inject a connection
 	connReadPipe, connWritePipe := io.Pipe()
-	mockConn := newMockConn(connReadPipe, connWritePipe)
+	mockNetConn := newMockNetConn(connReadPipe, connWritePipe)
 	connClosed := make(chan struct{})
-	mockConn.closeFunc = func() error { close(connClosed); return connReadPipe.Close() }
+	mockNetConn.closeFunc = func() error { close(connClosed); return connReadPipe.Close() }
 
 	listener.InjectConn(mockConn)
 
@@ -333,7 +333,7 @@ func TestServer_Serve_WithBinder(t *testing.T) {
 		require.NotNil(t, binder.boundCtx, "Binder context should not be nil")
 		require.NotNil(t, binder.boundRPC, "Binder RPCServer should not be nil")
 		require.NotNil(t, binder.boundStop, "Binder stop func should not be nil")
-		assert.Equal(t, mockConn, binder.boundCtx.Value(CtxNetConn), "Context should contain the net.Conn")
+		assert.Equal(t, mockNetConn, binder.boundCtx.Value(CtxNetConn), "Context should contain the net.Conn")
 
 		// Simulate binder stopping the connection processing
 		binder.boundStop(errors.New("stopped by binder"))
