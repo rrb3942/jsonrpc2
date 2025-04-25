@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"sync"
 	"time"
 
@@ -32,7 +33,7 @@ type ClientPoolConfig struct {
 	DialTimeout time.Duration
 	// Retries for IO errors. Cannot be less than 1, to handle stale clients.
 	Retries int
-	// Max number of client connections.
+	// Max number of client connections. If <= 0 default is min(runtime.NumCPU(), runtime.GOMAXPROCS(-1)) * 2
 	MaxSize int32
 	// Force Acquiring on creation to verify configuration.
 	AcquireOnCreate bool
@@ -70,6 +71,10 @@ func NewClientPoolWithDialer(nctx context.Context, config ClientPoolConfig, dial
 		config.DialTimeout = time.Duration(DefaultPoolDialTimeout) * time.Second
 	}
 
+	if config.MaxSize <= 0 {
+		config.MaxSize = int32(min(runtime.NumCPU(), runtime.GOMAXPROCS(-1)) * 2)
+	}
+
 	pool, err := puddle.NewPool[*Client](&puddle.Config[*Client]{
 		Constructor: func(ctx context.Context) (*Client, error) {
 			dialCtx, stop := context.WithTimeout(ctx, config.DialTimeout)
@@ -85,10 +90,14 @@ func NewClientPoolWithDialer(nctx context.Context, config ClientPoolConfig, dial
 	}
 
 	if config.AcquireOnCreate {
-		if _, err := pool.Acquire(nctx); err != nil {
+		res, err := pool.Acquire(nctx)
+
+		if err != nil {
 			defer pool.Close()
 			return nil, err
 		}
+
+		defer res.Release()
 	}
 
 	cpool := &ClientPool{pool: pool}
