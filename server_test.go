@@ -91,10 +91,11 @@ type mockNetConn struct {
 	io.Reader
 	io.Writer
 	closeFunc  func() error
-	localAddr  net.Addr
-	remoteAddr net.Addr
-	deadline   *time.Timer
-	mu         sync.Mutex
+	localAddr    net.Addr
+	remoteAddr   net.Addr
+	deadline     *time.Timer
+	deadlineTime time.Time // Store the actual deadline time
+	mu           sync.Mutex
 }
 
 func newMockNetConn(r io.Reader, w io.Writer) *mockNetConn {
@@ -128,10 +129,15 @@ func (m *mockNetConn) SetDeadline(t time.Time) error {
 		m.deadline = time.NewTimer(time.Until(t))
 	} else {
 		if !m.deadline.Stop() {
-			<-m.deadline.C // Drain channel if Stop returns false
+			// Try to drain the channel if Stop returns false, but don't block indefinitely
+			select {
+			case <-m.deadline.C:
+			default:
+			}
 		}
 		m.deadline.Reset(time.Until(t))
 	}
+	m.deadlineTime = t // Store the actual deadline time
 	return nil
 }
 
