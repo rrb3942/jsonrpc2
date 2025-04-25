@@ -235,7 +235,7 @@ func (rp *RPCServer) Close() error {
 func (rp *RPCServer) Run(ctx context.Context) (err error) {
 	var wg sync.WaitGroup
 
-	sctx, stop := context.WithCancel(ctx)
+	sctx, stop := context.WithCancel(context.WithValue(ctx, CtxRPCServer, rp))
 
 	defer func() {
 		if rp.WaitOnClose {
@@ -260,14 +260,25 @@ func (rp *RPCServer) Run(ctx context.Context) (err error) {
 
 		if err != nil {
 			if errors.As(err, &errSyntax) {
-				_ = rp.encoder.EncodeTo(ctx, NewResponseError(ErrParse.WithData(err)), from)
+				_ = rp.encoder.EncodeTo(ctx, NewResponseError(ErrParse.WithData(err.Error())), from)
+				rp.Callbacks.runOnDecodingError(ctx, nil, err)
+
+				// For stream decoders we need to close the connection as the buffer is all fubar
+				if _, ok := rp.decoder.(*decoderShim); ok {
+					return
+				}
+
+				// Packet decoders are OK to continue
 				err = nil
 
 				continue
 			}
 
 			if errors.As(err, &errJSONType) {
-				_ = rp.encoder.EncodeTo(ctx, NewResponseError(ErrInvalidRequest.WithData(err)), from)
+				// Decode buffer should still be fine here, no need to drop connection on streams
+				_ = rp.encoder.EncodeTo(ctx, NewResponseError(ErrInvalidRequest.WithData(err.Error())), from)
+				rp.Callbacks.runOnDecodingError(ctx, nil, err)
+
 				err = nil
 
 				continue

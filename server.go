@@ -194,7 +194,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 			/* New Connection, create a backend for it */
 			rpcServer := NewStreamServer(s.NewDecoder(conn), s.NewEncoder(conn), server.handler)
 
-			cctx, nstop := context.WithCancelCause(context.WithValue(context.WithValue(nctx, CtxNetConn, conn), CtxRPCServer, rpcServer))
+			cctx, nstop := context.WithCancelCause(context.WithValue(nctx, CtxNetConn, conn))
 			defer nstop(nil)
 
 			if s.Binder != nil {
@@ -232,15 +232,12 @@ func (s *Server) ServePacket(ctx context.Context, packetConn net.PacketConn) err
 			// Create a new packet server
 			rpcServer := NewPacketServer(s.NewPacketDecoder(packetConn), s.NewPacketEncoder(packetConn), s.handler)
 
-			// Add packet server to context
-			pctx := context.WithValue(gctx, CtxRPCServer, rpcServer)
-
 			if s.Binder != nil {
-				s.Binder.Bind(pctx, rpcServer, stop)
+				s.Binder.Bind(sctx, rpcServer, stop)
 			}
 
 			// And run it
-			ch <- rpcServer.Run(pctx)
+			ch <- rpcServer.Run(sctx)
 		}(sctx, errs)
 	}
 
