@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/puddle/v2" // Added import
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -271,7 +272,7 @@ func TestClientPool_Call_RetryableError(t *testing.T) {
 	assert.Equal(t, "success_after_retry", result)
 
 	assert.EqualValues(t, 2, pool.pool.Stat().AcquireCount(), "Acquire count mismatch")
-	assert.EqualValues(t, 1, pool.pool.Stat().DestroyCount(), "Destroy count mismatch")
+	assert.EqualValues(t, 1, pool.pool.Stat().DestroyedResources(), "Destroy count mismatch")
 	assert.EqualValues(t, 0, pool.pool.Stat().AcquiredResources(), "Resources should be released")
 }
 
@@ -312,7 +313,7 @@ func TestClientPool_Call_NonRetryableError(t *testing.T) {
 	assert.EqualValues(t, 1, dialCount.Load(), "Dial count should be 1")
 	// Client is destroyed even on non-retryable errors if an error occurred during the call
 	assert.EqualValues(t, 1, closeCount.Load(), "Close count should be 1")
-	assert.EqualValues(t, 1, pool.pool.Stat().DestroyCount(), "Destroy count mismatch")
+	assert.EqualValues(t, 1, pool.pool.Stat().DestroyedResources(), "Destroy count mismatch")
 }
 
 func TestClientPool_Call_RetriesExceeded(t *testing.T) {
@@ -351,7 +352,7 @@ func TestClientPool_Call_RetriesExceeded(t *testing.T) {
 	assert.EqualValues(t, 3, callCount.Load(), "Call count should be 3 (initial + 2 retries)")
 	assert.EqualValues(t, 3, dialCount.Load(), "Dial count should be 3")
 	assert.EqualValues(t, 3, closeCount.Load(), "Close count should be 3 (all clients destroyed)")
-	assert.EqualValues(t, 3, pool.pool.Stat().DestroyCount(), "Destroy count mismatch")
+	assert.EqualValues(t, 3, pool.pool.Stat().DestroyedResources(), "Destroy count mismatch")
 }
 
 func TestClientPool_Notify_Success(t *testing.T) {
@@ -697,7 +698,7 @@ func TestClientPool_Reset(t *testing.T) {
 	}
 	config := ClientPoolConfig{URI: "mock://", MaxSize: 2}
 	pool, cleanup := setupTestPool(t, config, dialFunc)
-	defer cleanup()
+	defer cleanup() // Added missing defer
 
 	// Acquire clients
 	res1, _ := pool.pool.Acquire(context.Background())
