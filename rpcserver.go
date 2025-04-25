@@ -99,7 +99,7 @@ func (rp *RPCServer) handleRequest(ctx context.Context, rpc json.RawMessage) (re
 	// Catch panics from inside the handler
 	defer func() {
 		if r := recover(); r != nil {
-			res = ErrInternalError
+			res = req.ResponseWithError(ErrInternalError)
 
 			rp.Callbacks.runOnHandlerPanic(ctx, &req, r)
 		}
@@ -185,12 +185,12 @@ func (rp *RPCServer) runRequests(ctx context.Context, raw json.RawMessage, from 
 			go func(gctx context.Context, jr json.RawMessage) {
 				defer wg.Done()
 
-				res := rp.handleRequest(gctx, jr)
+				if res := rp.handleRequest(gctx, jr); res != nil {
+					respMu.Lock()
+					defer respMu.Unlock()
 
-				respMu.Lock()
-				defer respMu.Unlock()
-
-				resps = append(resps, res)
+					resps = append(resps, res)
+				}
 			}(ctx, jReq)
 		}
 
