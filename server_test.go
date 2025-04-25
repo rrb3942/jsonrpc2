@@ -348,6 +348,7 @@ func TestServer_ListenAndServe_SchemeRouting(t *testing.T) {
 			defer listenCancel()
 
 			err := server.ListenAndServe(listenCtx, tt.uri)
+			urlErr := &url.Error{}
 
 			if tt.expectError != nil {
 				require.Error(t, err, "ListenAndServe should return an error for %s", tt.uri)
@@ -355,7 +356,7 @@ func TestServer_ListenAndServe_SchemeRouting(t *testing.T) {
 				if errors.Is(tt.expectError, net.ErrClosed) || errors.Is(tt.expectError, http.ErrServerClosed) {
 					// These errors occur because the context timed out / was cancelled quickly, which is expected
 					assert.ErrorIs(t, err, tt.expectError, "Error should be or wrap %T for %s", tt.expectError, tt.uri)
-				} else if _, ok := tt.expectError.(*url.Error); ok {
+				} else if errors.As(tt.expectError, &urlErr) {
 					assert.IsType(t, tt.expectError, err, "Error should be type %T for %s", tt.expectError, tt.uri)
 				} else {
 					assert.ErrorIs(t, err, tt.expectError, "Error should be %v for %s", tt.expectError, tt.uri)
