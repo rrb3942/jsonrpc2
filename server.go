@@ -233,11 +233,11 @@ func (s *Server) ServePacket(ctx context.Context, packetConn net.PacketConn) err
 			rpcServer := NewPacketServer(s.NewPacketDecoder(packetConn), s.NewPacketEncoder(packetConn), s.handler)
 
 			if s.Binder != nil {
-				s.Binder.Bind(sctx, rpcServer, stop)
+				s.Binder.Bind(gctx, rpcServer, stop)
 			}
 
 			// And run it
-			ch <- rpcServer.Run(sctx)
+			ch <- rpcServer.Run(gctx)
 		}(sctx, errs)
 	}
 
