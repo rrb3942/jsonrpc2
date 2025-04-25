@@ -138,10 +138,25 @@ func (m *mockNetConn) Write(b []byte) (n int, err error) {
 }
 
 func (m *mockNetConn) Close() error {
+	// Use the custom closeFunc if provided (used in tests to track closure)
 	if m.closeFunc != nil {
 		return m.closeFunc()
 	}
-	return nil
+
+	// Default close behavior: close underlying reader/writer if possible
+	var errs []error
+	if rc, ok := m.Reader.(io.Closer); ok {
+		if err := rc.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if wc, ok := m.Writer.(io.Closer); ok {
+		// Close writer first, often signals reader
+		if err := wc.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (m *mockNetConn) LocalAddr() net.Addr {

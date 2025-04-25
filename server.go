@@ -256,5 +256,16 @@ func (s *Server) ServePacket(ctx context.Context, packetConn net.PacketConn) err
 		err = errors.Join(err, e)
 	}
 
+	// Check if the context was cancelled with a specific cause
+	if cause := context.Cause(sctx); cause != nil && !errors.Is(cause, context.Canceled) {
+		// If the context has a specific cause (other than just Canceled),
+		// join it with the collected errors. This ensures binder's stop cause is included.
+		err = errors.Join(err, cause)
+	} else if ctxErr := ctx.Err(); ctxErr != nil && err == nil {
+		// If the original context has an error (e.g., timed out) and no other errors occurred, return it.
+		err = ctxErr
+	}
+
+
 	return err
 }
