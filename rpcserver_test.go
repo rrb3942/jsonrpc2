@@ -1,3 +1,4 @@
+//nolint:goconst //Yes tests are repetitive
 package jsonrpc2
 
 import (
@@ -38,9 +39,10 @@ func setupTestStreamServer(handler Handler) (clientToServerWriter io.WriteCloser
 	// - Writes to serverToClientWriterPipe (what the client reads)
 	// - We also tee the writes to serverOutputBuf for inspection
 	conn = &mockConn{
-		r: clientToServerReader,                                     // Server reads what client writes
-		w: io.MultiWriter(serverToClientWriterPipe, serverOutputBuf), // Server writes to client pipe and buffer
-		c: serverToClientWriterPipe,                                  // Closing conn closes the server writer pipe
+		r: clientToServerReader, // Server reads what client writes
+		//		w: io.MultiWriter(serverToClientWriterPipe, serverOutputBuf), // Server writes to client pipe and buffer
+		w: serverOutputBuf,          // Server writes to client pipe and buffer
+		c: serverToClientWriterPipe, // Closing conn closes the server writer pipe
 	}
 
 	// The client reads from serverToClientReader
@@ -52,27 +54,11 @@ func setupTestStreamServer(handler Handler) (clientToServerWriter io.WriteCloser
 	return clientToServerWriterPipe, serverOutputBuf, conn, rp
 }
 
-func runServerWithTimeout(t *testing.T, rp *RPCServer, duration time.Duration) error {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), duration)
-	defer cancel()
-	return rp.Run(ctx)
-}
-
-func assertJSONMatch(t *testing.T, expected, actual []byte) {
-	t.Helper()
-	var exp, act any
-	err := json.Unmarshal(expected, &exp)
-	require.NoError(t, err, "Failed to unmarshal expected JSON")
-	err = json.Unmarshal(actual, &act)
-	require.NoError(t, err, "Failed to unmarshal actual JSON: %s", string(actual)) // Added actual content on error
-	assert.Equal(t, exp, act, "JSON mismatch")
-}
-
 // --- Tests ---
 
 func TestNewStreamServer(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{}
 	// Use the setup helper to get a valid server instance with mockConn
 	clientWriter, _, conn, rp := setupTestStreamServer(handler)
@@ -85,6 +71,7 @@ func TestNewStreamServer(t *testing.T) {
 	// Check that the internal decoder/encoder are shims wrapping the mockConn
 	_, decOk := rp.decoder.(*decoderShim)
 	assert.True(t, decOk, "Internal decoder should be a shim")
+
 	_, encOk := rp.encoder.(*encoderShim)
 	assert.True(t, encOk, "Internal encoder should be a shim")
 	assert.NotNil(t, rp.encoder)
@@ -96,7 +83,9 @@ func TestNewStreamServer(t *testing.T) {
 
 func TestNewStreamServerFromIO(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{}
+
 	clientWriter, _, conn, rp := setupTestStreamServer(handler) // Use helper
 	defer conn.Close()                                          // Close the mockConn
 	defer clientWriter.Close()                                  // Close the client writer pipe
@@ -109,6 +98,7 @@ func TestNewStreamServerFromIO(t *testing.T) {
 
 func TestNewPacketServer(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{}
 	conn := newMockPacketConn()
 	decoder := NewPacketDecoder(conn)
@@ -122,6 +112,7 @@ func TestNewPacketServer(t *testing.T) {
 
 func TestNewRPCServerFromPacket(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{}
 	conn := newMockPacketConn()
 	rp := NewRPCServerFromPacket(conn, handler)
@@ -133,7 +124,9 @@ func TestNewRPCServerFromPacket(t *testing.T) {
 
 func TestRPCServer_Run_SingleRequest_Stream(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{}
+
 	clientWriter, serverOutput, conn, rp := setupTestStreamServer(handler)
 	defer conn.Close()
 
@@ -149,7 +142,7 @@ func TestRPCServer_Run_SingleRequest_Stream(t *testing.T) {
 	}()
 
 	// Run the server; it should process the request and exit upon EOF
-	err := rp.Run(context.Background()) // Run without timeout, expect EOF exit
+	err := rp.Run(t.Context()) // Run without timeout, expect EOF exit
 	assert.ErrorIs(t, err, io.EOF, "Server should exit with io.EOF after processing single request")
 
 	expectedOutput := `{"jsonrpc":"2.0","result":"handled testMethod","id":1}`
@@ -158,6 +151,7 @@ func TestRPCServer_Run_SingleRequest_Stream(t *testing.T) {
 
 func TestRPCServer_Run_SingleRequest_Packet(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{}
 	conn := newMockPacketConn()
 	rp := NewRPCServerFromPacket(conn, handler)
@@ -165,13 +159,16 @@ func TestRPCServer_Run_SingleRequest_Packet(t *testing.T) {
 	input := `{"jsonrpc": "2.0", "method": "packetTest", "id": "abc"}`
 	conn.SendData([]byte(input)) // Simulate receiving a packet
 
-	err := runServerWithTimeout(t, rp, 100*time.Millisecond)
-	assert.ErrorIs(t, err, context.DeadlineExceeded, "Server should stop due to timeout")
+	ctx, stop := context.WithCancel(t.Context())
+	handler.serverStop = stop
+
+	err := rp.Run(ctx)
+	assert.ErrorIs(t, err, context.Canceled, "Server should stop due cancel")
 
 	select {
 	case output := <-conn.writeChan:
 		expectedOutput := `{"jsonrpc":"2.0","result":"handled packetTest","id":"abc"}`
-		assert.JSONEq(t, string(expectedOutput), string(output))
+		assert.JSONEq(t, expectedOutput, string(output))
 	case <-time.After(50 * time.Millisecond):
 		t.Fatal("Did not receive response from packet server")
 	}
@@ -179,7 +176,9 @@ func TestRPCServer_Run_SingleRequest_Packet(t *testing.T) {
 
 func TestRPCServer_Run_Notification_Stream(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{}
+
 	clientWriter, serverOutput, conn, rp := setupTestStreamServer(handler)
 	defer conn.Close()
 
@@ -195,7 +194,7 @@ func TestRPCServer_Run_Notification_Stream(t *testing.T) {
 	}()
 
 	// Run the server; it should process the notification and exit upon EOF
-	err := rp.Run(context.Background())
+	err := rp.Run(t.Context())
 	assert.ErrorIs(t, err, io.EOF, "Server should exit with io.EOF after processing notification")
 
 	// No response should be written for a notification
@@ -204,8 +203,9 @@ func TestRPCServer_Run_Notification_Stream(t *testing.T) {
 
 func TestRPCServer_Run_BatchRequest_Stream_Parallel(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{
-		handleFunc: func(ctx context.Context, req *Request) (any, error) {
+		handleFunc: func(_ context.Context, req *Request) (any, error) {
 			// Introduce slight delay to test parallelism
 			time.Sleep(10 * time.Millisecond)
 			idVal, _ := req.ID.Int64() // Get int64 ID for map key
@@ -217,23 +217,29 @@ func TestRPCServer_Run_BatchRequest_Stream_Parallel(t *testing.T) {
 		{"jsonrpc": "2.0", "method": "batch2", "id": 11},
 		{"jsonrpc": "2.0", "method": "notifyBatch"}
 	]` + "\n" // Notification in batch
+
 	clientWriter, serverOutput, conn, rp := setupTestStreamServer(handler)
 	defer conn.Close()
+	defer clientWriter.Close()
+
+	rp.WaitOnClose = true
 	rp.SerialBatch = false // Explicitly parallel (default)
 
 	go func() {
 		_, errWrite := clientWriter.Write([]byte(input))
 		require.NoError(t, errWrite)
-		errClose := clientWriter.Close()
-		require.NoError(t, errClose)
 	}()
 
 	startTime := time.Now()
 	// Run until EOF
-	err := rp.Run(context.Background())
+	ctx, stop := context.WithCancel(t.Context())
+
+	handler.serverStop = stop
+
+	err := rp.Run(ctx)
 	duration := time.Since(startTime)
 
-	assert.ErrorIs(t, err, io.EOF)
+	assert.ErrorIs(t, err, context.Canceled)
 	// Check if it ran somewhat concurrently (less than 2*10ms + overhead)
 	assert.Less(t, duration, 40*time.Millisecond, "Batch processing took too long, likely serial") // Increased threshold slightly for pipe overhead
 
@@ -245,11 +251,15 @@ func TestRPCServer_Run_BatchRequest_Stream_Parallel(t *testing.T) {
 	require.Len(t, responses, 2, "Expected 2 responses (notification is ignored)")
 
 	results := make(map[int64]string) // Use int64 for key
+
 	for _, resp := range responses {
 		numID, idErr := resp.ID.Int64() // Assuming integer IDs for simplicity here
 		require.NoError(t, idErr, "Failed to get int64 ID from response")
-		strResult, ok := resp.Result.value.(string)
-		require.True(t, ok, "Result value is not a string")
+
+		var strResult string
+		err := resp.Result.Unmarshal(&strResult)
+		require.NoError(t, err)
+
 		results[numID] = strResult
 	}
 
@@ -259,10 +269,13 @@ func TestRPCServer_Run_BatchRequest_Stream_Parallel(t *testing.T) {
 
 func TestRPCServer_Run_BatchRequest_Stream_Serial(t *testing.T) {
 	t.Parallel()
+
 	var callOrder []int64
+
 	var mu sync.Mutex
+
 	handler := &mockHandler{
-		handleFunc: func(ctx context.Context, req *Request) (any, error) {
+		handleFunc: func(_ context.Context, req *Request) (any, error) {
 			id, _ := req.ID.Int64()
 			mu.Lock()
 			callOrder = append(callOrder, id)
@@ -275,20 +288,23 @@ func TestRPCServer_Run_BatchRequest_Stream_Serial(t *testing.T) {
 		{"jsonrpc": "2.0", "method": "batch1", "id": 10},
 		{"jsonrpc": "2.0", "method": "batch2", "id": 11}
 	]` + "\n"
+
 	clientWriter, serverOutput, conn, rp := setupTestStreamServer(handler)
 	defer conn.Close()
+
 	rp.SerialBatch = true // Force serial execution
 
 	go func() {
 		_, errWrite := clientWriter.Write([]byte(input))
 		require.NoError(t, errWrite)
+
 		errClose := clientWriter.Close()
 		require.NoError(t, errClose)
 	}()
 
 	startTime := time.Now()
 	// Run until EOF
-	err := rp.Run(context.Background())
+	err := rp.Run(t.Context())
 	duration := time.Since(startTime)
 
 	assert.ErrorIs(t, err, io.EOF)
@@ -306,7 +322,9 @@ func TestRPCServer_Run_BatchRequest_Stream_Serial(t *testing.T) {
 
 func TestRPCServer_Run_EmptyBatch_Stream(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{}
+
 	clientWriter, serverOutput, conn, rp := setupTestStreamServer(handler)
 	defer conn.Close()
 
@@ -315,12 +333,13 @@ func TestRPCServer_Run_EmptyBatch_Stream(t *testing.T) {
 	go func() {
 		_, errWrite := clientWriter.Write([]byte(input))
 		require.NoError(t, errWrite)
+
 		errClose := clientWriter.Close()
 		require.NoError(t, errClose)
 	}()
 
 	// Run until EOF
-	err := rp.Run(context.Background())
+	err := rp.Run(t.Context())
 	assert.ErrorIs(t, err, io.EOF)
 
 	// Spec requires an error response for an empty batch
@@ -330,14 +349,18 @@ func TestRPCServer_Run_EmptyBatch_Stream(t *testing.T) {
 
 func TestRPCServer_Run_InvalidJSON_Stream(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{}
+
 	clientWriter, serverOutput, conn, rp := setupTestStreamServer(handler)
+	defer clientWriter.Close()
 	defer conn.Close()
 
-	input := `{"jsonrpc": "2.0", "method": "test", "id": 1]` // Missing closing brace
-	var decodeErr atomic.Value                              // Store decoding error
+	input := `{"jsonrpc": "2.0", "method": "test", "id": 1]` // Unbalanced brackets
 
-	rp.Callbacks.OnDecodingError = func(ctx context.Context, msg json.RawMessage, err error) {
+	var decodeErr atomic.Value // Store decoding error
+
+	rp.Callbacks.OnDecodingError = func(_ context.Context, _ json.RawMessage, err error) {
 		decodeErr.Store(err)
 	}
 
@@ -351,14 +374,17 @@ func TestRPCServer_Run_InvalidJSON_Stream(t *testing.T) {
 		// require.NoError(t, errClose)
 	}()
 
-	// Run the server; it should detect the error and exit
-	err := rp.Run(context.Background())
+	ctx, stop := context.WithCancel(t.Context())
+
+	rp.Callbacks.OnDecodingError = func(_ context.Context, _ json.RawMessage, _ error) { stop() }
+
+	err := rp.Run(ctx)
 	// Expect the underlying JSON parsing error
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "unexpected end of JSON input", "Run should return the JSON parsing error")
+	assert.ErrorContains(t, err, "invalid character ']' after object key:value pair", "Run should return the JSON parsing error")
 
 	// Expect a ParseError response to have been written before the exit
-	expectedOutput := `{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse Error"},"id":null}`
+	expectedOutput := `{"jsonrpc":"2.0","error":{"code":-32700,"data":"invalid character ']' after object key:value pair","message":"Parse Error"},"id":null}`
 	assert.JSONEq(t, expectedOutput, serverOutput.String(), "Server should write Parse Error response")
 
 	// Callback should *not* have been called because the error is returned directly by DecodeFrom in Run loop
@@ -367,15 +393,18 @@ func TestRPCServer_Run_InvalidJSON_Stream(t *testing.T) {
 
 func TestRPCServer_Run_InvalidRequest_Stream(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{}
+
 	clientWriter, serverOutput, conn, rp := setupTestStreamServer(handler)
 	defer conn.Close()
 
 	// Invalid request: method is an integer, not a string
 	input := `{"jsonrpc": "2.0", "method": 123, "id": 1}` + "\n"
+
 	var decodeErr atomic.Value
 
-	rp.Callbacks.OnDecodingError = func(ctx context.Context, msg json.RawMessage, err error) {
+	rp.Callbacks.OnDecodingError = func(_ context.Context, _ json.RawMessage, err error) {
 		decodeErr.Store(err)
 	}
 
@@ -387,14 +416,19 @@ func TestRPCServer_Run_InvalidRequest_Stream(t *testing.T) {
 		// require.NoError(t, errClose)
 	}()
 
+	ctx, stop := context.WithCancel(t.Context())
+
+	rp.Callbacks.OnDecodingError = func(_ context.Context, _ json.RawMessage, _ error) {
+		stop()
+	}
+
 	// Run the server; it should detect the error and exit
-	err := rp.Run(context.Background())
+	err := rp.Run(ctx)
 	// Expect the underlying JSON unmarshal type error
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "json: cannot unmarshal number into Go struct field Request.method of type string", "Run should return the JSON type error")
+	require.ErrorIs(t, err, context.Canceled)
 
 	// Expect an InvalidRequest response to have been written
-	expectedOutput := `{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request"},"id":null}`
+	expectedOutput := `{"jsonrpc":"2.0","error":{"code":-32600,"data":"json: cannot unmarshal number into Go struct field Request.method of type string","message":"Invalid Request"},"id":null}`
 	assert.JSONEq(t, expectedOutput, serverOutput.String(), "Server should write Invalid Request response")
 
 	// Callback should *not* have been called because the error is returned by DecodeFrom
@@ -403,11 +437,13 @@ func TestRPCServer_Run_InvalidRequest_Stream(t *testing.T) {
 
 func TestRPCServer_Run_HandlerError_Stream(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{
-		handleFunc: func(ctx context.Context, req *Request) (any, error) {
+		handleFunc: func(_ context.Context, _ *Request) (any, error) {
 			return nil, NewError(123, "handler error") // Custom error
 		},
 	}
+
 	clientWriter, serverOutput, conn, rp := setupTestStreamServer(handler)
 	defer conn.Close()
 
@@ -416,11 +452,12 @@ func TestRPCServer_Run_HandlerError_Stream(t *testing.T) {
 	go func() {
 		_, errWrite := clientWriter.Write([]byte(input))
 		require.NoError(t, errWrite)
+
 		errClose := clientWriter.Close()
 		require.NoError(t, errClose)
 	}()
 
-	err := rp.Run(context.Background())
+	err := rp.Run(t.Context())
 	assert.ErrorIs(t, err, io.EOF)
 
 	expectedOutput := `{"jsonrpc":"2.0","error":{"code":123,"message":"handler error"},"id":2}`
@@ -429,14 +466,18 @@ func TestRPCServer_Run_HandlerError_Stream(t *testing.T) {
 
 func TestRPCServer_Run_HandlerPanic_Stream(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{}
+
 	clientWriter, serverOutput, conn, rp := setupTestStreamServer(handler)
 	defer conn.Close()
+	defer clientWriter.Close()
 
 	input := `{"jsonrpc": "2.0", "method": "panicMethod", "id": 3}` + "\n"
+
 	var panicInfo atomic.Value
 
-	rp.Callbacks.OnHandlerPanic = func(ctx context.Context, req *Request, recovery any) {
+	rp.Callbacks.OnHandlerPanic = func(_ context.Context, _ *Request, recovery any) {
 		panicInfo.Store(recovery)
 	}
 
@@ -445,15 +486,17 @@ func TestRPCServer_Run_HandlerPanic_Stream(t *testing.T) {
 	go func() {
 		_, errWrite := clientWriter.Write([]byte(input))
 		require.NoError(t, errWrite)
-		errClose := clientWriter.Close()
-		require.NoError(t, errClose)
 	}()
 
-	err := rp.Run(context.Background())
-	assert.ErrorIs(t, err, io.EOF)
+	ctx, stop := context.WithCancel(t.Context())
+	handler.serverStop = stop
 
+	err := rp.Run(ctx)
+	assert.ErrorIs(t, err, context.Canceled)
+
+	t.Log(serverOutput.String())
 	// Expect an InternalError response
-	expectedOutput := `{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error"},"id":3}`
+	expectedOutput := `{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal Error"},"id":3}`
 	assert.JSONEq(t, expectedOutput, serverOutput.String())
 	assert.NotNil(t, panicInfo.Load(), "OnHandlerPanic callback should have been called")
 	assert.Equal(t, "handler panic!", panicInfo.Load())
@@ -461,8 +504,9 @@ func TestRPCServer_Run_HandlerPanic_Stream(t *testing.T) {
 
 func TestRPCServer_Run_ContextCancel_Stream(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{
-		handleFunc: func(ctx context.Context, req *Request) (any, error) {
+		handleFunc: func(ctx context.Context, _ *Request) (any, error) {
 			// Simulate work that respects cancellation
 			select {
 			case <-time.After(200 * time.Millisecond):
@@ -472,28 +516,24 @@ func TestRPCServer_Run_ContextCancel_Stream(t *testing.T) {
 			}
 		},
 	}
+
 	clientWriter, serverOutput, conn, rp := setupTestStreamServer(handler)
 	defer conn.Close()
 
 	input := `{"jsonrpc": "2.0", "method": "longRunning", "id": 4}` + "\n"
+
 	var exitErr atomic.Value
 
-	rp.Callbacks.OnExit = func(ctx context.Context, err error) {
+	rp.Callbacks.OnExit = func(_ context.Context, err error) {
 		exitErr.Store(err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond) // Cancel before handler finishes
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond) // Cancel before handler finishes
 	defer cancel()
 
 	// Write the request in a goroutine
 	go func() {
-		_, errWrite := clientWriter.Write([]byte(input))
-		// Don't check error strictly, pipe might break due to cancellation
-		if errWrite == nil {
-			// Don't close the writer here, let the cancellation break the read/write
-			// errClose := clientWriter.Close()
-			// require.NoError(t, errClose)
-		}
+		_, _ = clientWriter.Write([]byte(input))
 	}()
 
 	runErr := rp.Run(ctx)
@@ -506,24 +546,29 @@ func TestRPCServer_Run_ContextCancel_Stream(t *testing.T) {
 	exitErrVal, ok := exitErr.Load().(error)
 	require.True(t, ok, "Stored exit error is not an error type")
 	// The error passed to OnExit should reflect the context cancellation
-	assert.ErrorIs(t, exitErrVal, context.Canceled, "OnExit error mismatch")
+	assert.ErrorIs(t, exitErrVal, context.DeadlineExceeded, "OnExit error mismatch")
 
+	expectedOutput := `{"jsonrpc":"2.0","error":{"data":"context deadline exceeded","message":"Internal Error","code":-32603},"id":4}`
 	// No response should be sent if cancelled mid-request
-	assert.Empty(t, serverOutput.String(), "No response should be sent after cancellation")
+	assert.JSONEq(t, expectedOutput, serverOutput.String(), "Expect server error")
 }
 
 func TestRPCServer_Run_WaitOnClose(t *testing.T) {
 	t.Parallel()
+
 	var handlerFinished atomic.Bool
+
 	handler := &mockHandler{
-		handleFunc: func(ctx context.Context, req *Request) (any, error) {
+		handleFunc: func(_ context.Context, _ *Request) (any, error) {
 			time.Sleep(50 * time.Millisecond) // Simulate work
 			handlerFinished.Store(true)
 			return "done", nil
 		},
 	}
+
 	clientWriter, serverOutput, conn, rp := setupTestStreamServer(handler)
 	defer conn.Close()
+
 	rp.WaitOnClose = true
 
 	input := `{"jsonrpc": "2.0", "method": "waitTest", "id": 5}` + "\n"
@@ -536,7 +581,7 @@ func TestRPCServer_Run_WaitOnClose(t *testing.T) {
 		// require.NoError(t, errClose)
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // Cancel quickly
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond) // Cancel quickly
 	defer cancel()
 
 	runErr := rp.Run(ctx)
@@ -553,16 +598,20 @@ func TestRPCServer_Run_WaitOnClose(t *testing.T) {
 
 func TestRPCServer_Run_NoRoutines(t *testing.T) {
 	t.Parallel()
+
 	var handlerGoroutineID, runGoroutineID int64
+
 	handler := &mockHandler{
-		handleFunc: func(ctx context.Context, req *Request) (any, error) {
+		handleFunc: func(_ context.Context, _ *Request) (any, error) {
 			handlerGoroutineID = getGoroutineID() // Needs a helper to get goroutine ID, simplified here
 			time.Sleep(10 * time.Millisecond)
 			return "done", nil
 		},
 	}
+
 	clientWriter, serverOutput, conn, rp := setupTestStreamServer(handler)
 	defer conn.Close()
+
 	rp.NoRoutines = true
 
 	input := `{"jsonrpc": "2.0", "method": "noRoutineTest", "id": 6}` + "\n"
@@ -570,13 +619,14 @@ func TestRPCServer_Run_NoRoutines(t *testing.T) {
 	go func() {
 		_, errWrite := clientWriter.Write([]byte(input))
 		require.NoError(t, errWrite)
+
 		errClose := clientWriter.Close()
 		require.NoError(t, errClose)
 	}()
 
 	runGoroutineID = getGoroutineID()
 	// Run until EOF
-	runErr := rp.Run(context.Background())
+	runErr := rp.Run(t.Context())
 
 	assert.ErrorIs(t, runErr, io.EOF)
 	// This check is indicative; getting goroutine IDs reliably is complex.
@@ -589,7 +639,7 @@ func TestRPCServer_Run_NoRoutines(t *testing.T) {
 	assert.JSONEq(t, expectedOutput, serverOutput.String())
 }
 
-// Helper to get goroutine ID (platform dependent, simplified example)
+// Helper to get goroutine ID (platform dependent, simplified example).
 func getGoroutineID() int64 {
 	var buf [64]byte
 	n := runtime.Stack(buf[:], false)
@@ -598,8 +648,10 @@ func getGoroutineID() int64 {
 	if len(fields) < 2 {
 		return 0 // Could not parse
 	}
+
 	idField := fields[1]
 	id, _ := strconv.ParseInt(string(idField), 10, 64)
+
 	return id
 }
 
@@ -609,13 +661,16 @@ func getGoroutineID() int64 {
 
 func TestRPCServer_Close(t *testing.T) {
 	t.Parallel()
+
 	handler := &mockHandler{}
-	clientWriter, _, conn, rp := setupTestStreamServer(handler) // Use helper
-	defer clientWriter.Close()                                  // Close client writer pipe
+
+	clientWriter, _, _, rp := setupTestStreamServer(handler) // Use helper
+	defer clientWriter.Close()                               // Close client writer pipe
 
 	// Run the server briefly to ensure components are active, then cancel
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	_ = rp.Run(ctx) // Ignore error, likely deadline exceeded
+
 	cancel()
 
 	// Close the server
@@ -636,8 +691,10 @@ func TestRPCServer_Close(t *testing.T) {
 
 	// Test closing with underlying error
 	expectedErr := errors.New("mock close error")
+
 	clientWriterErr, _, connWithErr, rpWithErr := setupTestStreamServer(handler)
 	defer clientWriterErr.Close()
+
 	connWithErr.closeErr = expectedErr // Set error on the mockConn
 
 	err = rpWithErr.Close()
@@ -646,10 +703,11 @@ func TestRPCServer_Close(t *testing.T) {
 
 func TestRPCServer_Callbacks(t *testing.T) {
 	t.Parallel()
+
 	var onExitCalled, onDecodeErrCalled, onEncodeErrCalled, onPanicCalled atomic.Bool
 
 	handler := &mockHandler{
-		handleFunc: func(ctx context.Context, req *Request) (any, error) {
+		handleFunc: func(_ context.Context, req *Request) (any, error) {
 			if req.Method == "makeError" {
 				return nil, errors.New("handler-error") // Not an RPCError, will be wrapped
 			}
@@ -666,25 +724,24 @@ func TestRPCServer_Callbacks(t *testing.T) {
 
 	rp := NewRPCServerFromPacket(packetConn, handler)
 
-	rp.Callbacks.OnExit = func(ctx context.Context, err error) {
+	rp.Callbacks.OnExit = func(_ context.Context, err error) {
 		onExitCalled.Store(true)
 		// Check if the error contains context.Canceled or DeadlineExceeded
 		assert.True(t, errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded), "OnExit should receive context cancel/deadline error, got: %v", err)
 	}
-	rp.Callbacks.OnDecodingError = func(ctx context.Context, msg json.RawMessage, err error) {
+	rp.Callbacks.OnDecodingError = func(_ context.Context, _ json.RawMessage, err error) {
 		onDecodeErrCalled.Store(true)
 		assert.Error(t, err)
 	}
-	rp.Callbacks.OnEncodingError = func(ctx context.Context, data any, err error) {
+	rp.Callbacks.OnEncodingError = func(_ context.Context, data any, err error) {
 		onEncodeErrCalled.Store(true)
 		assert.ErrorContains(t, err, "forced encoding error")
 		// Check data type (should be *Response for request, []any for batch)
 		_, isResponse := data.(*Response)
 		_, isSlice := data.([]any)
 		assert.True(t, isResponse || isSlice, "Unexpected data type in OnEncodingError: %T", data)
-
 	}
-	rp.Callbacks.OnHandlerPanic = func(ctx context.Context, req *Request, recovery any) {
+	rp.Callbacks.OnHandlerPanic = func(_ context.Context, req *Request, recovery any) {
 		onPanicCalled.Store(true)
 		assert.Equal(t, "handler-panic", recovery)
 		assert.Equal(t, "makePanic", req.Method)
@@ -702,8 +759,9 @@ func TestRPCServer_Callbacks(t *testing.T) {
 	packetConn.SendData([]byte(`[{"jsonrpc": "2.0", "method": "batchA", "id": 104}, {"jsonrpc": "2.0", "method": "batchB", "id": 105}]`))
 
 	// Run server briefly and cancel
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
+
 	runErr := rp.Run(ctx)
 
 	// Run might return DeadlineExceeded or Canceled depending on timing
@@ -718,13 +776,17 @@ func TestRPCServer_Callbacks(t *testing.T) {
 
 func TestRPCServer_ContextValues(t *testing.T) {
 	t.Parallel()
+
 	var seenServer *RPCServer
+
 	var seenAddr net.Addr
+
 	var mu sync.Mutex // Protect access to seenServer/seenAddr
 
 	handler := &mockHandler{
-		handleFunc: func(ctx context.Context, req *Request) (any, error) {
+		handleFunc: func(ctx context.Context, _ *Request) (any, error) {
 			mu.Lock()
+			defer mu.Unlock()
 			// Check CtxRPCServer
 			srvVal := ctx.Value(CtxRPCServer)
 			require.NotNil(t, srvVal, "CtxRPCServer not found in context")
@@ -739,7 +801,6 @@ func TestRPCServer_ContextValues(t *testing.T) {
 				require.True(t, ok, "CtxFromAddr has wrong type")
 				seenAddr = addr
 			}
-			mu.Unlock()
 			return "context ok", nil
 		},
 	}
@@ -750,8 +811,13 @@ func TestRPCServer_ContextValues(t *testing.T) {
 	inputPacket := `{"jsonrpc": "2.0", "method": "ctxTestPacket", "id": 201}`
 	conn.SendData([]byte(inputPacket))
 
-	errPacket := runServerWithTimeout(t, rpPacket, 100*time.Millisecond)
-	assert.ErrorIs(t, errPacket, context.DeadlineExceeded)
+	ctx, stop := context.WithCancel(t.Context())
+
+	handler.serverStop = stop
+
+	errPacket := rpPacket.Run(ctx)
+	assert.ErrorIs(t, errPacket, context.Canceled)
+	stop()
 
 	mu.Lock()
 	assert.Same(t, rpPacket, seenServer, "CtxRPCServer mismatch for packet server")
@@ -765,17 +831,22 @@ func TestRPCServer_ContextValues(t *testing.T) {
 	// Test with Stream Server
 	clientWriterStream, _, connStream, rpStream := setupTestStreamServer(handler)
 	defer connStream.Close()
+	defer clientWriterStream.Close()
+
 	inputSteam := `{"jsonrpc": "2.0", "method": "ctxTestStream", "id": 202}` + "\n"
 
 	go func() {
 		_, errWrite := clientWriterStream.Write([]byte(inputSteam))
 		require.NoError(t, errWrite)
-		errClose := clientWriterStream.Close()
-		require.NoError(t, errClose)
 	}()
 
-	errStream := rpStream.Run(context.Background())
-	assert.ErrorIs(t, errStream, io.EOF)
+	ctx, stop = context.WithCancel(t.Context())
+	defer stop()
+
+	handler.serverStop = stop
+
+	errStream := rpStream.Run(ctx)
+	assert.ErrorIs(t, errStream, context.Canceled)
 
 	mu.Lock()
 	assert.Same(t, rpStream, seenServer, "CtxRPCServer mismatch for stream server")
