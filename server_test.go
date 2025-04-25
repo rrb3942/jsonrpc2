@@ -96,31 +96,104 @@ type mockNetConn struct {
 	deadline     *time.Timer
 	deadlineTime time.Time // Store the actual deadline time
 	mu           sync.Mutex
+	readChan     chan []byte   // Channel for proxyReads to send data/errors
+	readReq      chan struct{} // Channel for Read to request data from proxy
+	readMu       sync.Mutex    // Ensure only one Read call interacts with proxy at a time
 }
 
 func newMockNetConn(r io.Reader, w io.Writer) *mockNetConn {
-	return &mockNetConn{
-		Reader:     r,
+	mc := &mockNetConn{
+		Reader:     r, // Underlying pipe reader
 		Writer:     w,
 		localAddr:  &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 1234},
 		remoteAddr: &net.TCPAddr{IP: net.ParseIP("198.51.100.1"), Port: 5678},
+		readChan:   make(chan []byte, 1),    // Buffer 1 read result/error signal
+		readReq:    make(chan struct{}, 1), // Buffer 1 read request
+	}
+	// Start a goroutine to proxy reads from the underlying reader
+	go mc.proxyReads()
+	return mc
+}
+
+// proxyReads runs in a goroutine, handling blocking reads from the underlying Reader.
+func (m *mockNetConn) proxyReads() {
+	buf := make([]byte, 4096) // Reasonable buffer size
+	for {
+		// Wait for a read request from the Read method
+		_, ok := <-m.readReq
+		if !ok {
+			// readReq channel was closed by Close(), stop proxying
+			return
+		}
+
+		// Perform the actual blocking read
+		n, err := m.Reader.Read(buf)
+		if err != nil {
+			// Send error signal (nil slice) or close channel on EOF/close
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) {
+				close(m.readChan) // Signal permanent closure
+				return
+			}
+			// For other errors, signal with nil slice for now
+			m.readChan <- nil
+			continue // Allow further read attempts if needed
+		}
+
+		// Send data read (copy to avoid buffer reuse issues)
+		dataCopy := make([]byte, n)
+		copy(dataCopy, buf[:n])
+		m.readChan <- dataCopy
 	}
 }
 
 func (m *mockNetConn) Read(b []byte) (n int, err error) {
+	m.readMu.Lock() // Ensure only one Read call interacts with proxy at a time
+	defer m.readMu.Unlock()
+
 	m.mu.Lock()
 	deadline := m.deadlineTime
+	timer := m.deadline // Get the timer itself for select
 	m.mu.Unlock()
 
-	// Check if deadline has already passed
+	// Check if deadline has already passed *before* attempting read
 	if !deadline.IsZero() && time.Now().After(deadline) {
 		return 0, os.ErrDeadlineExceeded
 	}
 
-	// Basic implementation using the embedded reader
-	// Note: This mock doesn't fully simulate blocking reads waiting for the deadline timer.
-	// It primarily checks if the deadline *was* set and has passed *before* the read attempt.
-	return m.Reader.Read(b)
+	// Signal the proxy goroutine to perform a read
+	select {
+	case m.readReq <- struct{}{}:
+		// Successfully requested a read from the proxy
+	default:
+		// This case should ideally not happen due to readMu,
+		// but indicates a logic error or proxy not running.
+		return 0, errors.New("mockNetConn: concurrent read attempt or proxy stopped")
+	}
+
+	// Wait for data from the proxy or deadline timeout
+	var deadlineC <-chan time.Time
+	if timer != nil {
+		deadlineC = timer.C
+	}
+
+	select {
+	case data, ok := <-m.readChan:
+		if !ok {
+			// Channel closed by proxy, indicating EOF or pipe closed
+			return 0, io.EOF
+		}
+		if data == nil {
+			// Proxy signaled an error other than EOF/close
+			// Return a generic error; specific error info isn't passed via nil signal
+			return 0, io.ErrUnexpectedEOF // Or os.ErrDeadlineExceeded if that's the likely cause?
+		}
+		// Got data
+		n = copy(b, data)
+		return n, nil
+	case <-deadlineC:
+		// Deadline timer fired while waiting for read result
+		return 0, os.ErrDeadlineExceeded
+	}
 }
 
 func (m *mockNetConn) Write(b []byte) (n int, err error) {
@@ -140,19 +213,29 @@ func (m *mockNetConn) Write(b []byte) (n int, err error) {
 func (m *mockNetConn) Close() error {
 	// Use the custom closeFunc if provided (used in tests to track closure)
 	if m.closeFunc != nil {
+		// The closeFunc MUST now handle closing pipes appropriately
+		// (specifically the writer pipe to unblock the proxy reader).
 		return m.closeFunc()
 	}
 
-	// Default close behavior: close underlying reader/writer if possible
+	// Default close behavior: stop proxy and close underlying reader/writer
+	m.mu.Lock()
+	select {
+	case <-m.readReq: // Already closed?
+	default:
+		close(m.readReq) // Stop the proxy goroutine by closing the request channel
+	}
+	m.mu.Unlock()
+
 	var errs []error
+	// Close underlying pipes/closers if they implement io.Closer
 	if rc, ok := m.Reader.(io.Closer); ok {
-		if err := rc.Close(); err != nil {
+		if err := rc.Close(); err != nil && !errors.Is(err, os.ErrClosed) { // Ignore already closed error
 			errs = append(errs, err)
 		}
 	}
 	if wc, ok := m.Writer.(io.Closer); ok {
-		// Close writer first, often signals reader
-		if err := wc.Close(); err != nil {
+		if err := wc.Close(); err != nil && !errors.Is(err, os.ErrClosed) { // Ignore already closed error
 			errs = append(errs, err)
 		}
 	}
@@ -306,7 +389,8 @@ func TestServer_Serve(t *testing.T) {
 	connClosed := make(chan struct{})
 	mockNetConn.closeFunc = func() error { // Ensure close is tracked
 		close(connClosed)
-		return connReadPipe.Close() // Close reader to unblock potential reads
+		// Close the writer pipe to signal EOF to the reader side (proxyReads)
+		return connWritePipe.Close()
 	}
 
 	listener.InjectConn(mockNetConn)
@@ -386,7 +470,8 @@ func TestServer_Serve_WithBinder(t *testing.T) {
 	connReadPipe, connWritePipe := io.Pipe()
 	mockNetConn := newMockNetConn(connReadPipe, connWritePipe)
 	connClosed := make(chan struct{})
-	mockNetConn.closeFunc = func() error { close(connClosed); return connReadPipe.Close() }
+	// Close the writer pipe to signal EOF to the reader side (proxyReads)
+	mockNetConn.closeFunc = func() error { close(connClosed); return connWritePipe.Close() }
 
 	listener.InjectConn(mockNetConn)
 
