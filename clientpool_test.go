@@ -185,9 +185,7 @@ func TestClientPool_Call_Success(t *testing.T) {
 			require.True(t, ok, "Expected *Request type")
 			assert.Equal(t, "testMethod", req.Method)
 			assert.False(t, isNotify)
-			// Simulate successful response
-			reqID, _ := req.ID.Int64() // Extract ID value
-			resp := NewResponseWithResult(reqID, "success")
+			resp := req.ResponseWithResult("success")
 			raw, _ := json.Marshal(resp)
 			return raw, nil
 		},
@@ -656,7 +654,7 @@ func TestClientPool_Close(t *testing.T) {
 	}
 	config := ClientPoolConfig{URI: "mock://", MaxSize: 2}
 	pool, cleanup := setupTestPool(t, config, dialFunc)
-	// Do not defer cleanup, we call Close explicitly
+	defer cleanup()
 
 	// Acquire some clients
 	res1, _ := pool.pool.Acquire(context.Background())
