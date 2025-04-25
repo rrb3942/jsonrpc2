@@ -271,58 +271,56 @@ func TestResponse_MarshalUnmarshalJSON(t *testing.T) {
 		// Capture range variable
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			tassert := assert.New(t)
-			trequire := require.New(t)
 
 			// Marshal
 			jsonData, err := json.Marshal(tc.response)
-			trequire.NoError(err, "Marshaling failed")
-			tassert.JSONEq(tc.expectedJSON, string(jsonData), "Marshaled JSON does not match expected")
+			require.NoError(t, err, "Marshaling failed")
+			assert.JSONEq(t, tc.expectedJSON, string(jsonData), "Marshaled JSON does not match expected")
 
 			// Unmarshal
 			var unmarshaledResp Response
 			err = json.Unmarshal(jsonData, &unmarshaledResp)
-			trequire.NoError(err, "Unmarshalling failed")
+			require.NoError(t, err, "Unmarshalling failed")
 
 			// Prepare expected response for comparison after unmarshal adds Jsonrpc version
 			expectedResp := *tc.response
 			expectedResp.Jsonrpc = Version{present: true} // json.Marshal adds this
 
 			// Compare basic fields
-			tassert.Equal(expectedResp.Jsonrpc, unmarshaledResp.Jsonrpc, "Jsonrpc version mismatch")
-			tassert.True(expectedResp.ID.Equal(unmarshaledResp.ID), "ID mismatch")
+			assert.Equal(t, expectedResp.Jsonrpc, unmarshaledResp.Jsonrpc, "Jsonrpc version mismatch")
+			assert.True(t, expectedResp.ID.Equal(unmarshaledResp.ID), "ID mismatch")
 
 			// Compare Result
 			if expectedResp.Result.IsZero() {
-				tassert.True(unmarshaledResp.Result.IsZero(), "Expected zero result, but got non-zero")
+				assert.True(t, unmarshaledResp.Result.IsZero(), "Expected zero result, but got non-zero")
 			} else {
-				tassert.False(unmarshaledResp.Result.IsZero(), "Expected non-zero result, but got zero")
+				assert.False(t, unmarshaledResp.Result.IsZero(), "Expected non-zero result, but got zero")
 				// Unmarshal results for deep comparison
 				var unmarshaledResultVal any
 				err = unmarshaledResp.Result.Unmarshal(&unmarshaledResultVal)
-				trequire.NoError(err, "Failed to unmarshal actual result for comparison")
-				tassert.Equal(expectedResp.Result.Value(), unmarshaledResultVal, "Result content mismatch")
+				require.NoError(t, err, "Failed to unmarshal actual result for comparison")
+				assert.Equal(t, expectedResp.Result.Value(), unmarshaledResultVal, "Result content mismatch")
 			}
 
 			// Compare Error
 			if expectedResp.Error.IsZero() {
-				tassert.True(unmarshaledResp.Error.IsZero(), "Expected zero error, but got non-zero")
+				assert.True(t, unmarshaledResp.Error.IsZero(), "Expected zero error, but got non-zero")
 			} else {
-				tassert.False(unmarshaledResp.Error.IsZero(), "Expected non-zero error, but got zero")
+				assert.False(t, unmarshaledResp.Error.IsZero(), "Expected non-zero error, but got zero")
 				// Compare error fields directly. For data, unmarshal if necessary.
-				tassert.Equal(expectedResp.Error.err.Code, unmarshaledResp.Error.err.Code, "Error code mismatch")
-				tassert.Equal(expectedResp.Error.err.Message, unmarshaledResp.Error.err.Message, "Error message mismatch")
+				assert.Equal(t, expectedResp.Error.err.Code, unmarshaledResp.Error.err.Code, "Error code mismatch")
+				assert.Equal(t, expectedResp.Error.err.Message, unmarshaledResp.Error.err.Message, "Error message mismatch")
 
 				// Compare Error Data
 				if expectedResp.Error.Data().IsZero() {
-					tassert.True(unmarshaledResp.Error.Data().IsZero(), "Expected zero error data, but got non-zero")
+					assert.True(t, unmarshaledResp.Error.Data().IsZero(), "Expected zero error data, but got non-zero")
 				} else {
-					tassert.False(unmarshaledResp.Error.Data().IsZero(), "Expected non-zero error data, but got zero")
+					assert.False(t, unmarshaledResp.Error.Data().IsZero(), "Expected non-zero error data, but got zero")
 
 					var unmarshaledErrDataVal any
 					err = unmarshaledResp.Error.Data().Unmarshal(&unmarshaledErrDataVal)
-					trequire.NoError(err, "Failed to unmarshal actual error data for comparison")
-					tassert.Equal(expectedResp.Error.Data().Value(), unmarshaledErrDataVal, "Error data content mismatch")
+					require.NoError(t, err, "Failed to unmarshal actual error data for comparison")
+					assert.Equal(t, expectedResp.Error.Data().Value(), unmarshaledErrDataVal, "Error data content mismatch")
 				}
 			}
 		})

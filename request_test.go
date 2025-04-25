@@ -11,147 +11,139 @@ import (
 
 func TestNewRequest(t *testing.T) {
 	t.Parallel()
-	tassert := assert.New(t)
 
 	// Test with int64 ID
 	reqInt := NewRequest(int64(1), "testMethodInt")
-	tassert.Equal("testMethodInt", reqInt.Method)
-	tassert.False(reqInt.ID.IsZero())
-	tassert.False(reqInt.ID.IsNull())
+	assert.Equal(t, "testMethodInt", reqInt.Method)
+	assert.False(t, reqInt.ID.IsZero())
+	assert.False(t, reqInt.ID.IsNull())
 	idInt, err := reqInt.ID.Int64()
-	tassert.NoError(err)
-	tassert.Equal(int64(1), idInt)
-	tassert.True(reqInt.Params.IsZero())
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), idInt)
+	assert.True(t, reqInt.Params.IsZero())
 
 	// Test with string ID
 	reqStr := NewRequest("req-id-string", "testMethodStr")
-	tassert.Equal("testMethodStr", reqStr.Method)
-	tassert.False(reqStr.ID.IsZero())
-	tassert.False(reqStr.ID.IsNull())
+	assert.Equal(t, "testMethodStr", reqStr.Method)
+	assert.False(t, reqStr.ID.IsZero())
+	assert.False(t, reqStr.ID.IsNull())
 	idStr, ok := reqStr.ID.String()
-	tassert.True(ok)
-	tassert.Equal("req-id-string", idStr)
-	tassert.True(reqStr.Params.IsZero())
+	assert.True(t, ok)
+	assert.Equal(t, "req-id-string", idStr)
+	assert.True(t, reqStr.Params.IsZero())
 }
 
 func TestNewRequestWithParams(t *testing.T) {
 	t.Parallel()
-	tassert := assert.New(t)
-	trequire := require.New(t)
 
 	params := NewParamsJSONObject(map[string]any{"key": "value"})
 	req := NewRequestWithParams(int64(2), "methodWithParams", params)
 
-	tassert.Equal("methodWithParams", req.Method)
-	tassert.False(req.ID.IsZero())
+	assert.Equal(t, "methodWithParams", req.Method)
+	assert.False(t, req.ID.IsZero())
 	idInt, err := req.ID.Int64()
-	tassert.NoError(err)
-	tassert.Equal(int64(2), idInt)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), idInt)
 
-	tassert.False(req.Params.IsZero())
+	assert.False(t, req.Params.IsZero())
 
 	var decodedParams map[string]any
 	err = req.Params.Unmarshal(&decodedParams)
-	trequire.NoError(err)
-	tassert.Equal(map[string]any{"key": "value"}, decodedParams)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"key": "value"}, decodedParams)
 }
 
 func TestRequest_ResponseWithError(t *testing.T) {
 	t.Parallel()
-	tassert := assert.New(t)
 
 	req := NewRequest(int64(3), "errorMethod")
 
 	// Test with standard error
 	stdErr := errors.New("standard error occurred")
 	respStdErr := req.ResponseWithError(stdErr)
-	tassert.Equal(req.ID, respStdErr.ID)
-	tassert.True(respStdErr.Result.IsZero())
-	tassert.False(respStdErr.Error.IsZero())
-	tassert.Equal(ErrInternalError.err.Code, respStdErr.Error.err.Code)
-	tassert.Equal(ErrInternalError.err.Message, respStdErr.Error.err.Message)
+	assert.Equal(t, req.ID, respStdErr.ID)
+	assert.True(t, respStdErr.Result.IsZero())
+	assert.False(t, respStdErr.Error.IsZero())
+	assert.Equal(t, ErrInternalError.err.Code, respStdErr.Error.err.Code)
+	assert.Equal(t, ErrInternalError.err.Message, respStdErr.Error.err.Message)
 
 	gotData := respStdErr.Error.Data().Value()
-	tassert.Equal(stdErr.Error(), gotData)
+	assert.Equal(t, stdErr.Error(), gotData)
 
 	// Test with jsonrpc2.Error
 	rpcErr := NewError(-32000, "RPC specific error")
 	respRPCErr := req.ResponseWithError(rpcErr)
-	tassert.Equal(req.ID, respRPCErr.ID)
-	tassert.True(respRPCErr.Result.IsZero())
-	tassert.False(respRPCErr.Error.IsZero())
-	tassert.Equal(rpcErr.err.Code, respRPCErr.Error.err.Code)
-	tassert.Equal(rpcErr.err.Message, respRPCErr.Error.err.Message)
-	tassert.True(respRPCErr.Error.Data().IsZero()) // No data added in this case
+	assert.Equal(t, req.ID, respRPCErr.ID)
+	assert.True(t, respRPCErr.Result.IsZero())
+	assert.False(t, respRPCErr.Error.IsZero())
+	assert.Equal(t, rpcErr.err.Code, respRPCErr.Error.err.Code)
+	assert.Equal(t, rpcErr.err.Message, respRPCErr.Error.err.Message)
+	assert.True(t, respRPCErr.Error.Data().IsZero()) // No data added in this case
 }
 
 func TestRequest_ResponseWithResult(t *testing.T) {
 	t.Parallel()
-	tassert := assert.New(t)
 
 	req := NewRequest("result-req", "resultMethod")
 	resultData := map[string]any{"status": "success", "value": 123}
 	resp := req.ResponseWithResult(resultData)
 
-	tassert.Equal(req.ID, resp.ID)
-	tassert.True(resp.Error.IsZero())
-	tassert.False(resp.Result.IsZero())
+	assert.Equal(t, req.ID, resp.ID)
+	assert.True(t, resp.Error.IsZero())
+	assert.False(t, resp.Result.IsZero())
 
 	gotResult := resp.Result.Value()
 
-	tassert.Equal(gotResult, resultData)
+	assert.Equal(t, gotResult, resultData)
 }
 
 func TestRequest_IsNotification(t *testing.T) {
 	t.Parallel()
-	tassert := assert.New(t)
 
 	// Regular request
 	req := NewRequest(int64(1), "method")
-	tassert.False(req.IsNotification())
+	assert.False(t, req.IsNotification())
 
 	// Notification (created via Request struct directly with zero ID)
 	notification := &Request{Method: "notifyMethod"} // ID is zero value
-	tassert.True(notification.IsNotification())
+	assert.True(t, notification.IsNotification())
 
 	// Notification (created via NewNotification)
 	notificationProper := NewNotification("notifyMethodProper")
-	tassert.True(notificationProper.AsRequest().IsNotification())
+	assert.True(t, notificationProper.AsRequest().IsNotification())
 }
 
 func TestRequest_AsNotification(t *testing.T) {
 	t.Parallel()
-	tassert := assert.New(t)
 
 	// Regular request
 	req := NewRequest(int64(1), "method")
-	tassert.Nil(req.AsNotification())
+	assert.Nil(t, req.AsNotification())
 
 	// Notification (created via Request struct directly with zero ID)
 	notificationReq := &Request{Method: "notifyMethod"} // ID is zero value
 	notif := notificationReq.AsNotification()
-	tassert.NotNil(notif)
-	tassert.Equal("notifyMethod", notif.Method)
-	tassert.True(notif.ID.IsZero()) // Should still be zero
+	assert.NotNil(t, notif)
+	assert.Equal(t, "notifyMethod", notif.Method)
+	assert.True(t, notif.ID.IsZero()) // Should still be zero
 
 	// Test nil receiver
 	var nilReq *Request
 
-	tassert.Nil(nilReq.AsNotification())
+	assert.Nil(t, nilReq.AsNotification())
 }
 
 func TestRequest_id(t *testing.T) {
 	t.Parallel()
-	tassert := assert.New(t)
 
 	// Request with ID
 	reqWithID := NewRequest(int64(123), "method")
-	tassert.Equal(NewID(int64(123)), reqWithID.id())
+	assert.Equal(t, NewID(int64(123)), reqWithID.id())
 
 	// Notification (no ID)
 	notification := NewNotification("notify")
 	id := notification.AsRequest().id()
-	tassert.True(id.IsZero())
+	assert.True(t, id.IsZero())
 }
 
 func TestRequest_MarshalUnmarshalJSON(t *testing.T) {
@@ -199,18 +191,16 @@ func TestRequest_MarshalUnmarshalJSON(t *testing.T) {
 		// Capture range variable
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			tassert := assert.New(t)
-			trequire := require.New(t)
 
 			// Marshal
 			jsonData, err := json.Marshal(tc.request)
-			trequire.NoError(err, "Marshaling failed")
-			tassert.JSONEq(tc.expectedJSON, string(jsonData), "Marshaled JSON does not match expected")
+			require.NoError(t, err, "Marshaling failed")
+			assert.JSONEq(t, tc.expectedJSON, string(jsonData), "Marshaled JSON does not match expected")
 
 			// Unmarshal
 			var unmarshaledReq Request
 			err = json.Unmarshal(jsonData, &unmarshaledReq)
-			trequire.NoError(err, "Unmarshalling failed")
+			require.NoError(t, err, "Unmarshalling failed")
 
 			// Need to manually set Jsonrpc version on original request for comparison
 			// as it's added during marshaling but not part of the constructor.
@@ -225,27 +215,27 @@ func TestRequest_MarshalUnmarshalJSON(t *testing.T) {
 
 			// Compare fields carefully, especially Params which might need deep comparison
 			// if not using testify's Equal which handles this.
-			tassert.Equal(expectedReq.Jsonrpc, unmarshaledReq.Jsonrpc, "Jsonrpc version mismatch")
-			tassert.Equal(expectedReq.Method, unmarshaledReq.Method, "Method mismatch")
+			assert.Equal(t, expectedReq.Jsonrpc, unmarshaledReq.Jsonrpc, "Jsonrpc version mismatch")
+			assert.Equal(t, expectedReq.Method, unmarshaledReq.Method, "Method mismatch")
 
 			// Zero IDs are not equal by ID.Equal, do deep equal
 			if expectedReq.IsNotification() {
-				tassert.Equal(expectedReq.ID, unmarshaledReq.ID, "Zero ID mismatch")
+				assert.Equal(t, expectedReq.ID, unmarshaledReq.ID, "Zero ID mismatch")
 			} else {
 				// Must use ID.Equal to handle unmarshal to json.Number
-				tassert.True(expectedReq.ID.Equal(unmarshaledReq.ID), "ID mismatch")
+				assert.True(t, expectedReq.ID.Equal(unmarshaledReq.ID), "ID mismatch")
 			}
 
 			// Compare Params
 			if expectedReq.Params.IsZero() {
-				tassert.True(unmarshaledReq.Params.IsZero(), "Expected zero params, but got non-zero")
+				assert.True(t, unmarshaledReq.Params.IsZero(), "Expected zero params, but got non-zero")
 			} else {
-				tassert.False(unmarshaledReq.Params.IsZero(), "Expected non-zero params, but got zero")
+				assert.False(t, unmarshaledReq.Params.IsZero(), "Expected non-zero params, but got zero")
 				// Unmarshal original and unmarshaled params into maps/slices for comparison
 				var unmarshaledParamsVal any
 				err = unmarshaledReq.Params.Unmarshal(&unmarshaledParamsVal)
-				trequire.NoError(err, "Failed to unmarshal actual params for comparison")
-				tassert.Equal(expectedReq.Params.value, unmarshaledParamsVal, "Params content mismatch")
+				require.NoError(t, err, "Failed to unmarshal actual params for comparison")
+				assert.Equal(t, expectedReq.Params.value, unmarshaledParamsVal, "Params content mismatch")
 			}
 		})
 	}
