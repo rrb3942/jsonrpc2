@@ -21,27 +21,29 @@ import (
 
 // mockPoolClient implements the minimum required methods for pool testing.
 type mockPoolClient struct {
-	callFunc      func(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error)
-	unmarshalFunc func(data []byte, v any) error
+	encodeFunc    func(ctx context.Context, v any) error
+	decodeFunc    func(ctx context.Context, v any) error
+	unmarshalFunc func(data []byte, v any) error // Keep for direct unmarshal if needed by Decode simulation
 	closeFunc     func() error
 	closeCount    atomic.Int32
 }
 
 func (m *mockPoolClient) Encode(ctx context.Context, v any) error {
-	// Simulate encoding by calling the internal call function logic directly for testing
-	_, err := m.callFunc(ctx, v, false) // Assume not a notification for simplicity here
-	// We only care about the error propagation for encode simulation
-	return err
+	if m.encodeFunc != nil {
+		return m.encodeFunc(ctx, v)
+	}
+	// Default success if no func provided
+	return nil
 }
 
 func (m *mockPoolClient) Decode(ctx context.Context, v any) error {
-	// Simulate decoding by calling the internal call function logic
-	raw, err := m.callFunc(ctx, nil, false) // Pass nil request for decode simulation
-	if err != nil {
-		return err
+	if m.decodeFunc != nil {
+		return m.decodeFunc(ctx, v)
 	}
-	// Simulate unmarshalling the raw response
-	return m.unmarshalFunc(raw, v)
+	// Default: Simulate decoding a standard success response if no func provided
+	// This requires the unmarshalFunc or default json.Unmarshal to work.
+	dummyResp := json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":"ok"}`)
+	return m.Unmarshal(dummyResp, v)
 }
 
 func (m *mockPoolClient) Unmarshal(data []byte, v any) error {
@@ -58,19 +60,6 @@ func (m *mockPoolClient) Close() error {
 		return m.closeFunc()
 	}
 	return nil
-}
-
-// call simulates the internal client call logic for testing pool retries.
-func (m *mockPoolClient) call(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
-	if m.callFunc != nil {
-		return m.callFunc(ctx, rpc, isNotify)
-	}
-	// Default success if no func provided
-	if isNotify {
-		return nil, nil
-	}
-	// Return a dummy response for calls
-	return json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":"ok"}`), nil
 }
 
 // --- Test Helper ---
@@ -177,21 +166,23 @@ func TestNewClientPool(t *testing.T) {
 }
 
 func TestClientPool_Call_Success(t *testing.T) {
-	callCount := atomic.Int32{}
+	encodeCount := atomic.Int32{}
+	decodeCount := atomic.Int32{}
 	mockC := &mockPoolClient{
-		callFunc: func(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
-			callCount.Add(1)
-			req, ok := rpc.(*Request)
+		encodeFunc: func(ctx context.Context, v any) error {
+			encodeCount.Add(1)
+			req, ok := v.(*Request)
 			require.True(t, ok, "Expected *Request type")
 			assert.Equal(t, "testMethod", req.Method)
-			assert.False(t, isNotify)
-			resp := req.ResponseWithResult("success")
-			raw, _ := json.Marshal(resp)
-			return raw, nil
+			return nil // Simulate successful encode
 		},
-		unmarshalFunc: func(data []byte, v any) error {
-			// Need to unmarshal the raw response into the Response struct
-			return json.Unmarshal(data, v)
+		decodeFunc: func(ctx context.Context, v any) error {
+			decodeCount.Add(1)
+			// Simulate server sending a successful response
+			resp := NewResponseWithResult(int64(1), "success") // Assuming ID 1 from req
+			raw, _ := json.Marshal(resp)
+			// Need to unmarshal the raw response into the Response struct pointer passed to Decode
+			return json.Unmarshal(raw, v)
 		},
 	}
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
@@ -206,7 +197,8 @@ func TestClientPool_Call_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	assert.EqualValues(t, 1, callCount.Load())
+	assert.EqualValues(t, 1, encodeCount.Load(), "Encode count mismatch")
+	assert.EqualValues(t, 1, decodeCount.Load(), "Decode count mismatch")
 	id, _ := resp.ID.Int64()
 	assert.Equal(t, int64(1), id)
 	var result string
@@ -218,7 +210,8 @@ func TestClientPool_Call_Success(t *testing.T) {
 }
 
 func TestClientPool_Call_RetryableError(t *testing.T) {
-	callCount := atomic.Int32{}
+	encodeCount := atomic.Int32{}
+	decodeCount := atomic.Int32{}
 	dialCount := atomic.Int32{}
 	closeCount := atomic.Int32{}
 
@@ -228,20 +221,21 @@ func TestClientPool_Call_RetryableError(t *testing.T) {
 		dialCount.Add(1)
 		currentDial := dialCount.Load()
 		mockC := &mockPoolClient{
-			callFunc: func(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
-				callCount.Add(1)
-				if currentDial == 1 { // Fail on the first client
-					return nil, retryableErr
+			encodeFunc: func(ctx context.Context, v any) error {
+				encodeCount.Add(1)
+				if currentDial == 1 { // Fail encode on the first client
+					return retryableErr
 				}
-				// Succeed on the second client (after retry)
-				req := rpc.(*Request)
-				reqID, _ := req.ID.Int64() // Extract ID value
-				resp := NewResponseWithResult(reqID, "success_after_retry")
-				raw, _ := json.Marshal(resp)
-				return raw, nil
+				return nil // Succeed encode on the second client
 			},
-			unmarshalFunc: func(data []byte, v any) error {
-				return json.Unmarshal(data, v)
+			decodeFunc: func(ctx context.Context, v any) error {
+				// This should only be called for the second client
+				require.EqualValues(t, 2, currentDial, "Decode called on wrong client")
+				decodeCount.Add(1)
+				// Simulate successful response after retry
+				resp := NewResponseWithResult(int64(1), "success_after_retry") // Assuming ID 1
+				raw, _ := json.Marshal(resp)
+				return json.Unmarshal(raw, v)
 			},
 			closeFunc: func() error {
 				closeCount.Add(1)
@@ -260,7 +254,8 @@ func TestClientPool_Call_RetryableError(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	assert.EqualValues(t, 2, callCount.Load(), "Call count should be 2 (initial + retry)")
+	assert.EqualValues(t, 2, encodeCount.Load(), "Encode count should be 2 (initial + retry)")
+	assert.EqualValues(t, 1, decodeCount.Load(), "Decode count should be 1 (only on success)")
 	assert.EqualValues(t, 2, dialCount.Load(), "Dial count should be 2 (initial + retry)")
 	assert.EqualValues(t, 1, closeCount.Load(), "Close count should be 1 (first client destroyed)")
 
@@ -276,7 +271,8 @@ func TestClientPool_Call_RetryableError(t *testing.T) {
 }
 
 func TestClientPool_Call_NonRetryableError(t *testing.T) {
-	callCount := atomic.Int32{}
+	encodeCount := atomic.Int32{}
+	decodeCount := atomic.Int32{}
 	dialCount := atomic.Int32{}
 	closeCount := atomic.Int32{}
 
@@ -285,9 +281,15 @@ func TestClientPool_Call_NonRetryableError(t *testing.T) {
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
 		dialCount.Add(1)
 		mockC := &mockPoolClient{
-			callFunc: func(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
-				callCount.Add(1)
-				return nil, nonRetryableErr // Fail immediately
+			encodeFunc: func(ctx context.Context, v any) error {
+				encodeCount.Add(1)
+				return nonRetryableErr // Fail encode immediately
+			},
+			decodeFunc: func(ctx context.Context, v any) error {
+				// Should not be called
+				decodeCount.Add(1)
+				t.Error("Decode should not be called on non-retryable error")
+				return errors.New("decode should not be called")
 			},
 			closeFunc: func() error {
 				closeCount.Add(1)
@@ -308,7 +310,8 @@ func TestClientPool_Call_NonRetryableError(t *testing.T) {
 	assert.ErrorIs(t, err, nonRetryableErr)
 	assert.False(t, errors.Is(err, ErrRetriesExceeded), "Should not be ErrRetriesExceeded")
 
-	assert.EqualValues(t, 1, callCount.Load(), "Call count should be 1")
+	assert.EqualValues(t, 1, encodeCount.Load(), "Encode count should be 1")
+	assert.EqualValues(t, 0, decodeCount.Load(), "Decode count should be 0")
 	assert.EqualValues(t, 1, dialCount.Load(), "Dial count should be 1")
 	// Client is destroyed even on non-retryable errors if an error occurred during the call
 	assert.EqualValues(t, 1, closeCount.Load(), "Close count should be 1")
@@ -317,7 +320,8 @@ func TestClientPool_Call_NonRetryableError(t *testing.T) {
 }
 
 func TestClientPool_Call_RetriesExceeded(t *testing.T) {
-	callCount := atomic.Int32{}
+	encodeCount := atomic.Int32{}
+	decodeCount := atomic.Int32{}
 	dialCount := atomic.Int32{}
 	closeCount := atomic.Int32{}
 
@@ -326,9 +330,15 @@ func TestClientPool_Call_RetriesExceeded(t *testing.T) {
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
 		dialCount.Add(1)
 		mockC := &mockPoolClient{
-			callFunc: func(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
-				callCount.Add(1)
-				return nil, persistentErr // Always fail
+			encodeFunc: func(ctx context.Context, v any) error {
+				encodeCount.Add(1)
+				return persistentErr // Always fail encode
+			},
+			decodeFunc: func(ctx context.Context, v any) error {
+				// Should not be called
+				decodeCount.Add(1)
+				t.Error("Decode should not be called when encode fails")
+				return errors.New("decode should not be called")
 			},
 			closeFunc: func() error {
 				closeCount.Add(1)
@@ -349,7 +359,8 @@ func TestClientPool_Call_RetriesExceeded(t *testing.T) {
 	assert.ErrorIs(t, err, ErrRetriesExceeded, "Expected ErrRetriesExceeded")
 	assert.ErrorIs(t, err, persistentErr, "Expected wrapped original error") // Check original error is wrapped
 
-	assert.EqualValues(t, 3, callCount.Load(), "Call count should be 3 (initial + 2 retries)")
+	assert.EqualValues(t, 3, encodeCount.Load(), "Encode count should be 3 (initial + 2 retries)")
+	assert.EqualValues(t, 0, decodeCount.Load(), "Decode count should be 0")
 	assert.EqualValues(t, 3, dialCount.Load(), "Dial count should be 3")
 	assert.EqualValues(t, 3, closeCount.Load(), "Close count should be 3 (all clients destroyed)")
 	// Cannot directly assert destroyed count via puddle.Stat, rely on closeCount check.
@@ -357,14 +368,22 @@ func TestClientPool_Call_RetriesExceeded(t *testing.T) {
 }
 
 func TestClientPool_Notify_Success(t *testing.T) {
-	callCount := atomic.Int32{}
+	encodeCount := atomic.Int32{}
+	decodeCount := atomic.Int32{}
 	mockC := &mockPoolClient{
-		callFunc: func(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
-			callCount.Add(1)
-			_, ok := rpc.(*Notification)
+		encodeFunc: func(ctx context.Context, v any) error {
+			encodeCount.Add(1)
+			_, ok := v.(*Notification)
 			require.True(t, ok, "Expected *Notification type")
-			assert.True(t, isNotify)
-			return nil, nil // Notify succeeds
+			// Note: ClientPool calls client.Notify which calls client.call with isNotify=true.
+			// The mock Encode doesn't know it's a notify, but the pool logic handles not calling Decode.
+			return nil // Notify encode succeeds
+		},
+		decodeFunc: func(ctx context.Context, v any) error {
+			// Should not be called for Notify
+			decodeCount.Add(1)
+			t.Error("Decode should not be called for Notify")
+			return errors.New("decode should not be called for Notify")
 		},
 	}
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
@@ -378,11 +397,13 @@ func TestClientPool_Notify_Success(t *testing.T) {
 	err := pool.Notify(context.Background(), notify)
 
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, callCount.Load())
+	assert.EqualValues(t, 1, encodeCount.Load(), "Encode count mismatch")
+	assert.EqualValues(t, 0, decodeCount.Load(), "Decode count mismatch")
 }
 
 func TestClientPool_Notify_RetryableError(t *testing.T) {
-	callCount := atomic.Int32{}
+	encodeCount := atomic.Int32{}
+	decodeCount := atomic.Int32{}
 	dialCount := atomic.Int32{}
 	closeCount := atomic.Int32{}
 	retryableErr := os.ErrClosed // Another retryable error
@@ -391,12 +412,18 @@ func TestClientPool_Notify_RetryableError(t *testing.T) {
 		dialCount.Add(1)
 		currentDial := dialCount.Load()
 		mockC := &mockPoolClient{
-			callFunc: func(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
-				callCount.Add(1)
+			encodeFunc: func(ctx context.Context, v any) error {
+				encodeCount.Add(1)
 				if currentDial == 1 {
-					return nil, retryableErr // Fail first time
+					return retryableErr // Fail encode first time
 				}
-				return nil, nil // Succeed second time
+				return nil // Succeed encode second time
+			},
+			decodeFunc: func(ctx context.Context, v any) error {
+				// Should not be called for Notify
+				decodeCount.Add(1)
+				t.Error("Decode should not be called for Notify")
+				return errors.New("decode should not be called for Notify")
 			},
 			closeFunc: func() error {
 				closeCount.Add(1)
@@ -414,20 +441,28 @@ func TestClientPool_Notify_RetryableError(t *testing.T) {
 	err := pool.Notify(context.Background(), notify)
 
 	require.NoError(t, err)
-	assert.EqualValues(t, 2, callCount.Load())
+	assert.EqualValues(t, 2, encodeCount.Load(), "Encode count mismatch")
+	assert.EqualValues(t, 0, decodeCount.Load(), "Decode count mismatch")
 	assert.EqualValues(t, 2, dialCount.Load())
 	assert.EqualValues(t, 1, closeCount.Load())
 }
 
 func TestClientPool_Notify_RetriesExceeded(t *testing.T) {
-	callCount := atomic.Int32{}
+	encodeCount := atomic.Int32{}
+	decodeCount := atomic.Int32{}
 	persistentErr := io.ErrUnexpectedEOF // Yet another retryable error
 
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
 		mockC := &mockPoolClient{
-			callFunc: func(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
-				callCount.Add(1)
-				return nil, persistentErr // Always fail
+			encodeFunc: func(ctx context.Context, v any) error {
+				encodeCount.Add(1)
+				return persistentErr // Always fail encode
+			},
+			decodeFunc: func(ctx context.Context, v any) error {
+				// Should not be called for Notify
+				decodeCount.Add(1)
+				t.Error("Decode should not be called for Notify")
+				return errors.New("decode should not be called for Notify")
 			},
 		}
 		return NewClient(mockC, mockC), nil
@@ -443,7 +478,8 @@ func TestClientPool_Notify_RetriesExceeded(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrRetriesExceeded)
 	assert.ErrorIs(t, err, persistentErr)
-	assert.EqualValues(t, 2, callCount.Load()) // Initial + 1 retry
+	assert.EqualValues(t, 2, encodeCount.Load(), "Encode count mismatch") // Initial + 1 retry
+	assert.EqualValues(t, 0, decodeCount.Load(), "Decode count mismatch")
 }
 
 func TestClientPool_ContextCancel_Acquire(t *testing.T) {
@@ -479,19 +515,24 @@ func TestClientPool_ContextCancel_Acquire(t *testing.T) {
 }
 
 func TestClientPool_ContextCancel_DuringCall(t *testing.T) {
-	callStarted := make(chan struct{})
-	callCtxDone := make(chan struct{})
+	encodeStarted := make(chan struct{})
+	encodeCtxDone := make(chan struct{})
 
 	mockC := &mockPoolClient{
-		callFunc: func(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
-			close(callStarted)
+		encodeFunc: func(ctx context.Context, v any) error {
+			close(encodeStarted)
 			select {
 			case <-ctx.Done():
-				close(callCtxDone)
-				return nil, ctx.Err()
+				close(encodeCtxDone)
+				return ctx.Err()
 			case <-time.After(5 * time.Second): // Timeout for safety
-				return nil, errors.New("test timeout")
+				return errors.New("test timeout")
 			}
+		},
+		decodeFunc: func(ctx context.Context, v any) error {
+			// Should not be called if encode is cancelled
+			t.Error("Decode should not be called when encode is cancelled")
+			return errors.New("decode should not be called")
 		},
 	}
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
@@ -511,10 +552,10 @@ func TestClientPool_ContextCancel_DuringCall(t *testing.T) {
 		_, err = pool.Call(ctx, NewRequest(int64(1), "test"))
 	}()
 
-	<-callStarted // Wait for the callFunc to start blocking
-	cancel()      // Cancel the context
-	<-callCtxDone // Wait for the callFunc to acknowledge cancellation
-	wg.Wait()     // Wait for the Call goroutine to finish
+	<-encodeStarted // Wait for the encodeFunc to start blocking
+	cancel()        // Cancel the context
+	<-encodeCtxDone // Wait for the encodeFunc to acknowledge cancellation
+	wg.Wait()       // Wait for the Call goroutine to finish
 
 	require.Error(t, err)
 	// Because the error happens *during* the call, the client might be destroyed.
@@ -699,7 +740,8 @@ func TestClientPool_Reset(t *testing.T) {
 	}
 	config := ClientPoolConfig{URI: "mock://", MaxSize: 2}
 	pool, cleanup := setupTestPool(t, config, dialFunc)
-	defer cleanup() // Ensure cleanup is called
+	// NOTE: cleanup is intentionally NOT deferred here, it's called explicitly in the test body.
+	// defer cleanup() // Ensure cleanup is called
 
 	// Acquire clients
 	res1, _ := pool.pool.Acquire(context.Background())
@@ -733,18 +775,20 @@ func TestClientPool_Reset(t *testing.T) {
 // Test other call types (Batch, Raw, WithTimeout) briefly, assuming core logic is tested by Call/Notify
 
 func TestClientPool_CallBatch(t *testing.T) {
-	callCount := atomic.Int32{}
+	encodeCount := atomic.Int32{}
+	decodeCount := atomic.Int32{}
 	mockC := &mockPoolClient{
-		callFunc: func(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
-			callCount.Add(1)
-			_, ok := rpc.(Batch[*Request])
+		encodeFunc: func(ctx context.Context, v any) error {
+			encodeCount.Add(1)
+			_, ok := v.(Batch[*Request])
 			require.True(t, ok, "Expected Batch[*Request] type")
+			return nil
+		},
+		decodeFunc: func(ctx context.Context, v any) error {
+			decodeCount.Add(1)
 			respBatch := NewBatch[*Response](0) // Dummy empty batch response
 			raw, _ := json.Marshal(respBatch)
-			return raw, nil
-		},
-		unmarshalFunc: func(data []byte, v any) error {
-			return json.Unmarshal(data, v)
+			return json.Unmarshal(raw, v)
 		},
 	}
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
@@ -758,22 +802,25 @@ func TestClientPool_CallBatch(t *testing.T) {
 	_, err := pool.CallBatch(context.Background(), req)
 
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, callCount.Load())
+	assert.EqualValues(t, 1, encodeCount.Load(), "Encode count mismatch")
+	assert.EqualValues(t, 1, decodeCount.Load(), "Decode count mismatch")
 }
 
 func TestClientPool_CallRaw(t *testing.T) {
-	callCount := atomic.Int32{}
+	encodeCount := atomic.Int32{}
+	decodeCount := atomic.Int32{}
 	mockC := &mockPoolClient{
-		callFunc: func(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
-			callCount.Add(1)
-			_, ok := rpc.(json.RawMessage) // Raw calls pass json.RawMessage
+		encodeFunc: func(ctx context.Context, v any) error {
+			encodeCount.Add(1)
+			_, ok := v.(json.RawMessage) // Raw calls pass json.RawMessage
 			require.True(t, ok, "Expected json.RawMessage type")
+			return nil
+		},
+		decodeFunc: func(ctx context.Context, v any) error {
+			decodeCount.Add(1)
 			respObj := NewResponseWithResult("rawID", "raw_ok")
 			raw, _ := json.Marshal(respObj)
-			return raw, nil
-		},
-		unmarshalFunc: func(data []byte, v any) error {
-			return json.Unmarshal(data, v)
+			return json.Unmarshal(raw, v)
 		},
 	}
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
@@ -787,20 +834,26 @@ func TestClientPool_CallRaw(t *testing.T) {
 	_, err := pool.CallRaw(context.Background(), req)
 
 	require.NoError(t, err)
-	assert.EqualValues(t, 1, callCount.Load())
+	assert.EqualValues(t, 1, encodeCount.Load(), "Encode count mismatch")
+	assert.EqualValues(t, 1, decodeCount.Load(), "Decode count mismatch")
 }
 
 func TestClientPool_CallWithTimeout(t *testing.T) {
-	callStarted := make(chan struct{})
+	encodeStarted := make(chan struct{})
 	mockC := &mockPoolClient{
-		callFunc: func(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
-			close(callStarted)
+		encodeFunc: func(ctx context.Context, v any) error {
+			close(encodeStarted)
 			select {
 			case <-ctx.Done(): // Wait for timeout
-				return nil, ctx.Err()
+				return ctx.Err()
 			case <-time.After(1 * time.Second):
-				return nil, errors.New("should have timed out")
+				return errors.New("should have timed out")
 			}
+		},
+		decodeFunc: func(ctx context.Context, v any) error {
+			// Should not be called if encode times out
+			t.Error("Decode should not be called when encode times out")
+			return errors.New("decode should not be called")
 		},
 	}
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
@@ -815,6 +868,6 @@ func TestClientPool_CallWithTimeout(t *testing.T) {
 	_, err := pool.CallWithTimeout(context.Background(), timeout, req)
 
 	require.Error(t, err)
-	// The error comes from the callFunc context check
+	// The error comes from the encodeFunc context check
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
