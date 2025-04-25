@@ -135,6 +135,12 @@ func (s *Server) listenAndServeHTTP(ctx context.Context, uri *url.URL) error {
 	shutdownCtx, stop := context.WithCancel(ctx)
 	defer stop()
 
+	path := uri.Path
+
+	if path == "" {
+		path = "/"
+	}
+
 	httpMux := http.NewServeMux()
 
 	handler := NewHTTPHandler(s.handler)
@@ -142,7 +148,7 @@ func (s *Server) listenAndServeHTTP(ctx context.Context, uri *url.URL) error {
 	handler.NewDecoder = s.NewDecoder
 	handler.NewEncoder = s.NewEncoder
 
-	httpMux.Handle(uri.Path, handler)
+	httpMux.Handle(path, handler)
 
 	httpServer := &http.Server{Addr: uri.Host, Handler: httpMux, ReadHeaderTimeout: s.HTTPReadTimeout}
 
