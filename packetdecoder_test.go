@@ -35,8 +35,8 @@ type mockPacketConn struct {
 
 func newMockPacketConn() *mockPacketConn {
 	return &mockPacketConn{
-		readChan:   make(chan []byte, 1), // Buffered to allow sending before read
-		writeChan:  make(chan []byte, 1),
+		readChan:   make(chan []byte, 10), // Buffered to allow sending before read
+		writeChan:  make(chan []byte, 10),
 		closeChan:  make(chan struct{}),
 		localAddr:  &net.UDPAddr{IP: net.ParseIP("192.0.2.1"), Port: 1234},
 		remoteAddr: &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: 5678},
