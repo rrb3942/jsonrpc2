@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/puddle/v2" // Added import
+	"github.com/jackc/puddle/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,6 +43,7 @@ func (m *mockPoolClient) Decode(ctx context.Context, v any) error {
 	// Default: Simulate decoding a standard success response if no func provided
 	// This requires the unmarshalFunc or default json.Unmarshal to work.
 	dummyResp := json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":"ok"}`)
+
 	return m.Unmarshal(dummyResp, v)
 }
 
@@ -56,9 +57,11 @@ func (m *mockPoolClient) Unmarshal(data []byte, v any) error {
 
 func (m *mockPoolClient) Close() error {
 	m.closeCount.Add(1)
+
 	if m.closeFunc != nil {
 		return m.closeFunc()
 	}
+
 	return nil
 }
 
@@ -66,6 +69,7 @@ func (m *mockPoolClient) Close() error {
 
 func setupTestPool(t *testing.T, config ClientPoolConfig, dialFunc func(ctx context.Context, uri string) (*Client, error)) (*ClientPool, func()) {
 	t.Helper()
+
 	if dialFunc == nil {
 		// Default mock dialer if none provided
 		dialFunc = func(ctx context.Context, uri string) (*Client, error) {
@@ -75,12 +79,13 @@ func setupTestPool(t *testing.T, config ClientPoolConfig, dialFunc func(ctx cont
 		}
 	}
 
-	pool, err := NewClientPoolWithDialer(context.Background(), config, dialFunc)
+	pool, err := NewClientPoolWithDialer(t.Context(), config, dialFunc)
 	require.NoError(t, err, "Failed to create client pool")
 
 	cleanup := func() {
 		pool.Close()
 	}
+
 	return pool, cleanup
 }
 
@@ -91,10 +96,13 @@ func TestNewClientPool(t *testing.T) {
 		dialCount := atomic.Int32{}
 		dialFunc := func(ctx context.Context, uri string) (*Client, error) {
 			dialCount.Add(1)
+
 			mockC := &mockPoolClient{}
+
 			return NewClient(mockC, mockC), nil
 		}
 		config := ClientPoolConfig{URI: "mock://"}
+
 		pool, cleanup := setupTestPool(t, config, dialFunc)
 		defer cleanup()
 
@@ -109,12 +117,15 @@ func TestNewClientPool(t *testing.T) {
 		dialCount := atomic.Int32{}
 		dialFunc := func(ctx context.Context, uri string) (*Client, error) {
 			dialCount.Add(1)
+
 			mockC := &mockPoolClient{}
+
 			return NewClient(mockC, mockC), nil
 		}
 		config := ClientPoolConfig{URI: "mock://", AcquireOnCreate: true}
-		pool, err := NewClientPoolWithDialer(context.Background(), config, dialFunc)
+		pool, err := NewClientPoolWithDialer(t.Context(), config, dialFunc)
 		require.NoError(t, err)
+
 		defer pool.Close()
 
 		assert.EqualValues(t, 1, dialCount.Load(), "Dial should happen with AcquireOnCreate")
@@ -128,7 +139,7 @@ func TestNewClientPool(t *testing.T) {
 			return nil, dialErr
 		}
 		config := ClientPoolConfig{URI: "mock://", AcquireOnCreate: true}
-		_, err := NewClientPoolWithDialer(context.Background(), config, dialFunc)
+		_, err := NewClientPoolWithDialer(t.Context(), config, dialFunc)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, dialErr, "Expected dial error during AcquireOnCreate")
 	})
@@ -139,6 +150,7 @@ func TestNewClientPool(t *testing.T) {
 			IdleTimeout: 5 * time.Second,
 			DialTimeout: 1 * time.Second,
 		}
+
 		pool, cleanup := setupTestPool(t, config, nil) // Use default dialer
 		defer cleanup()
 
@@ -157,6 +169,7 @@ func TestNewClientPool(t *testing.T) {
 			URI:         "mock://",
 			IdleTimeout: -1 * time.Second, // Disable idle timeout
 		}
+
 		pool, cleanup := setupTestPool(t, config, nil)
 		defer cleanup()
 		assert.Nil(t, pool.idle, "Idle timer should be nil when timeout is negative")
@@ -189,18 +202,21 @@ func TestClientPool_Call_Success(t *testing.T) {
 		return NewClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://", Retries: 1} // 1 retry = 2 attempts
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
 	req := NewRequest(int64(1), "testMethod")
-	resp, err := pool.Call(context.Background(), req)
+	resp, err := pool.Call(t.Context(), req)
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.EqualValues(t, 1, encodeCount.Load(), "Encode count mismatch")
 	assert.EqualValues(t, 1, decodeCount.Load(), "Decode count mismatch")
+
 	id, _ := resp.ID.Int64()
 	assert.Equal(t, int64(1), id)
+
 	var result string
 	err = resp.Result.Unmarshal(&result)
 	require.NoError(t, err)
@@ -217,9 +233,15 @@ func TestClientPool_Call_RetryableError(t *testing.T) {
 
 	retryableErr := io.EOF // Use a known retryable error
 
+	var wg sync.WaitGroup
+
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
-		dialCount.Add(1)
-		currentDial := dialCount.Load()
+		currentDial := dialCount.Add(1)
+
+		if currentDial == 1 {
+			wg.Add(2)
+		}
+
 		mockC := &mockPoolClient{
 			encodeFunc: func(ctx context.Context, v any) error {
 				encodeCount.Add(1)
@@ -238,26 +260,32 @@ func TestClientPool_Call_RetryableError(t *testing.T) {
 				return json.Unmarshal(raw, v)
 			},
 			closeFunc: func() error {
+				if currentDial == 1 {
+					defer wg.Done()
+				}
 				closeCount.Add(1)
 				return nil
 			},
 		}
+
 		return NewClient(mockC, mockC), nil
 	}
 
 	config := ClientPoolConfig{URI: "mock://", Retries: 1} // 1 retry = 2 attempts
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
 	req := NewRequest(int64(1), "retryMethod")
-	resp, err := pool.Call(context.Background(), req)
+	resp, err := pool.Call(t.Context(), req)
 
+	wg.Wait()
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.EqualValues(t, 2, encodeCount.Load(), "Encode count should be 2 (initial + retry)")
 	assert.EqualValues(t, 1, decodeCount.Load(), "Decode count should be 1 (only on success)")
 	assert.EqualValues(t, 2, dialCount.Load(), "Dial count should be 2 (initial + retry)")
-	assert.EqualValues(t, 1, closeCount.Load(), "Close count should be 1 (first client destroyed)")
+	assert.EqualValues(t, 2, closeCount.Load(), "Close count should be 2 (first client encode and decoder destroyed)")
 
 	var result string
 	err = resp.Result.Unmarshal(&result)
@@ -278,8 +306,12 @@ func TestClientPool_Call_NonRetryableError(t *testing.T) {
 
 	nonRetryableErr := context.Canceled // Use a known non-retryable error
 
+	var wg sync.WaitGroup
+
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+		wg.Add(2)
 		dialCount.Add(1)
+
 		mockC := &mockPoolClient{
 			encodeFunc: func(ctx context.Context, v any) error {
 				encodeCount.Add(1)
@@ -292,19 +324,24 @@ func TestClientPool_Call_NonRetryableError(t *testing.T) {
 				return errors.New("decode should not be called")
 			},
 			closeFunc: func() error {
+				defer wg.Done()
 				closeCount.Add(1)
 				return nil
 			},
 		}
+
 		return NewClient(mockC, mockC), nil
 	}
 
 	config := ClientPoolConfig{URI: "mock://", Retries: 3} // More retries shouldn't matter
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
 	req := NewRequest(int64(1), "nonRetryMethod")
-	_, err := pool.Call(context.Background(), req)
+	_, err := pool.Call(t.Context(), req)
+
+	wg.Wait()
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, nonRetryableErr)
@@ -314,7 +351,7 @@ func TestClientPool_Call_NonRetryableError(t *testing.T) {
 	assert.EqualValues(t, 0, decodeCount.Load(), "Decode count should be 0")
 	assert.EqualValues(t, 1, dialCount.Load(), "Dial count should be 1")
 	// Client is destroyed even on non-retryable errors if an error occurred during the call
-	assert.EqualValues(t, 1, closeCount.Load(), "Close count should be 1")
+	assert.EqualValues(t, 2, closeCount.Load(), "Close count should be 2 (both encoder and decoder closed)")
 	// Cannot directly assert destroyed count via puddle.Stat, rely on closeCount check.
 	// assert.EqualValues(t, 1, pool.pool.Stat().DestroyedResources(), "Destroy count mismatch")
 }
@@ -327,8 +364,12 @@ func TestClientPool_Call_RetriesExceeded(t *testing.T) {
 
 	persistentErr := net.ErrClosed // A retryable error
 
+	var wg sync.WaitGroup
+
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+		wg.Add(2)
 		dialCount.Add(1)
+
 		mockC := &mockPoolClient{
 			encodeFunc: func(ctx context.Context, v any) error {
 				encodeCount.Add(1)
@@ -341,28 +382,32 @@ func TestClientPool_Call_RetriesExceeded(t *testing.T) {
 				return errors.New("decode should not be called")
 			},
 			closeFunc: func() error {
+				defer wg.Done()
 				closeCount.Add(1)
 				return nil
 			},
 		}
+
 		return NewClient(mockC, mockC), nil
 	}
 
 	config := ClientPoolConfig{URI: "mock://", Retries: 2} // 2 retries = 3 attempts
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
 	req := NewRequest(int64(1), "failMethod")
-	_, err := pool.Call(context.Background(), req)
+	_, err := pool.Call(t.Context(), req)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrRetriesExceeded, "Expected ErrRetriesExceeded")
 	assert.ErrorIs(t, err, persistentErr, "Expected wrapped original error") // Check original error is wrapped
 
+	wg.Wait()
 	assert.EqualValues(t, 3, encodeCount.Load(), "Encode count should be 3 (initial + 2 retries)")
 	assert.EqualValues(t, 0, decodeCount.Load(), "Decode count should be 0")
 	assert.EqualValues(t, 3, dialCount.Load(), "Dial count should be 3")
-	assert.EqualValues(t, 3, closeCount.Load(), "Close count should be 3 (all clients destroyed)")
+	assert.EqualValues(t, 6, closeCount.Load(), "Close count should be 6 (all clients destroyed both encoders and decoders)")
 	// Cannot directly assert destroyed count via puddle.Stat, rely on closeCount check.
 	// assert.EqualValues(t, 3, pool.pool.Stat().DestroyedResources(), "Destroy count mismatch")
 }
@@ -390,11 +435,12 @@ func TestClientPool_Notify_Success(t *testing.T) {
 		return NewClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://"}
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
 	notify := NewNotification("testNotify")
-	err := pool.Notify(context.Background(), notify)
+	err := pool.Notify(t.Context(), notify)
 
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, encodeCount.Load(), "Encode count mismatch")
@@ -408,9 +454,15 @@ func TestClientPool_Notify_RetryableError(t *testing.T) {
 	closeCount := atomic.Int32{}
 	retryableErr := os.ErrClosed // Another retryable error
 
+	var wg sync.WaitGroup
+
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
-		dialCount.Add(1)
-		currentDial := dialCount.Load()
+		currentDial := dialCount.Add(1)
+
+		if currentDial == 1 {
+			wg.Add(2)
+		}
+
 		mockC := &mockPoolClient{
 			encodeFunc: func(ctx context.Context, v any) error {
 				encodeCount.Add(1)
@@ -426,25 +478,32 @@ func TestClientPool_Notify_RetryableError(t *testing.T) {
 				return errors.New("decode should not be called for Notify")
 			},
 			closeFunc: func() error {
+				if currentDial == 1 {
+					defer wg.Done()
+				}
 				closeCount.Add(1)
 				return nil
 			},
 		}
+
 		return NewClient(mockC, mockC), nil
 	}
 
 	config := ClientPoolConfig{URI: "mock://", Retries: 1}
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
 	notify := NewNotification("retryNotify")
-	err := pool.Notify(context.Background(), notify)
+	err := pool.Notify(t.Context(), notify)
 
 	require.NoError(t, err)
+
+	wg.Wait()
 	assert.EqualValues(t, 2, encodeCount.Load(), "Encode count mismatch")
 	assert.EqualValues(t, 0, decodeCount.Load(), "Decode count mismatch")
 	assert.EqualValues(t, 2, dialCount.Load())
-	assert.EqualValues(t, 1, closeCount.Load())
+	assert.EqualValues(t, 2, closeCount.Load())
 }
 
 func TestClientPool_Notify_RetriesExceeded(t *testing.T) {
@@ -465,15 +524,17 @@ func TestClientPool_Notify_RetriesExceeded(t *testing.T) {
 				return errors.New("decode should not be called for Notify")
 			},
 		}
+
 		return NewClient(mockC, mockC), nil
 	}
 
 	config := ClientPoolConfig{URI: "mock://", Retries: 1} // 1 retry = 2 attempts
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
 	notify := NewNotification("failNotify")
-	err := pool.Notify(context.Background(), notify)
+	err := pool.Notify(t.Context(), notify)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrRetriesExceeded)
@@ -488,18 +549,23 @@ func TestClientPool_ContextCancel_Acquire(t *testing.T) {
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
 		close(dialStarted) // Signal that dial has started
 		<-ctx.Done()       // Wait for cancellation
+
 		return nil, ctx.Err()
 	}
 
 	config := ClientPoolConfig{URI: "mock://", MaxSize: 1}
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	var wg sync.WaitGroup
+
 	wg.Add(1)
+
 	var err error
+
 	go func() {
 		defer wg.Done()
 		// This will block in the dialer
@@ -539,16 +605,21 @@ func TestClientPool_ContextCancel_DuringCall(t *testing.T) {
 		return NewClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://", MaxSize: 1}
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	var wg sync.WaitGroup
+
 	wg.Add(1)
+
 	var err error
+
 	go func() {
 		defer wg.Done()
+
 		_, err = pool.Call(ctx, NewRequest(int64(1), "test"))
 	}()
 
@@ -574,12 +645,14 @@ func TestClientPool_IdleTimeout(t *testing.T) {
 	dialCount := atomic.Int32{}
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
 		dialCount.Add(1)
+
 		mockC := &mockPoolClient{
 			closeFunc: func() error {
 				closeCount.Add(1)
 				return nil
 			},
 		}
+
 		return NewClient(mockC, mockC), nil
 	}
 
@@ -589,11 +662,12 @@ func TestClientPool_IdleTimeout(t *testing.T) {
 		IdleTimeout: idleTime,
 		MaxSize:     1,
 	}
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
 	// Acquire and release a client to make it idle
-	res, err := pool.pool.Acquire(context.Background())
+	res, err := pool.pool.Acquire(t.Context())
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, dialCount.Load())
 	res.Release()
@@ -604,14 +678,14 @@ func TestClientPool_IdleTimeout(t *testing.T) {
 
 	// Check if the client was closed (destroyed)
 	assert.Eventually(t, func() bool {
-		return closeCount.Load() == 1
+		return closeCount.Load() == 2
 	}, 2*idleTime, 5*time.Millisecond, "Client was not closed after idle timeout")
 
 	assert.EqualValues(t, 0, pool.pool.Stat().IdleResources(), "Idle resources should be 0 after cleanup")
 	assert.EqualValues(t, 0, pool.pool.Stat().TotalResources(), "Total resources should be 0 after cleanup")
 
 	// Acquire again, should dial a new one
-	res2, err := pool.pool.Acquire(context.Background())
+	res2, err := pool.pool.Acquire(t.Context())
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, dialCount.Load(), "Should dial a new client")
 	res2.Release()
@@ -632,28 +706,34 @@ func TestClientPool_MaxSize(t *testing.T) {
 				return nil, ctx.Err()
 			}
 		}
+
 		mockC := &mockPoolClient{}
+
 		return NewClient(mockC, mockC), nil
 	}
 
 	config := ClientPoolConfig{URI: "mock://", MaxSize: maxSize}
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
 	var resources []*puddle.Resource[*Client]
 	// Acquire up to MaxSize
 	for i := int32(0); i < maxSize; i++ {
-		res, err := pool.pool.Acquire(context.Background())
+		res, err := pool.pool.Acquire(t.Context())
 		require.NoError(t, err)
+
 		resources = append(resources, res)
 	}
+
 	assert.EqualValues(t, maxSize, dialCount.Load())
 	assert.EqualValues(t, maxSize, pool.pool.Stat().AcquiredResources())
 	assert.EqualValues(t, maxSize, pool.pool.Stat().TotalResources())
 
 	// Try to acquire one more, should block or fail if context times out
-	acquireCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	acquireCtx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
+
 	_, err := pool.pool.Acquire(acquireCtx)
 	require.Error(t, err, "Acquire should fail when pool is full")
 	assert.ErrorIs(t, err, context.DeadlineExceeded, "Error should be context deadline exceeded") // puddle returns ctx error
@@ -666,8 +746,9 @@ func TestClientPool_MaxSize(t *testing.T) {
 	assert.EqualValues(t, 1, pool.pool.Stat().IdleResources())
 
 	// Try acquiring again, should succeed using the released resource
-	acquireCtx2, cancel2 := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	acquireCtx2, cancel2 := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel2()
+
 	res, err := pool.pool.Acquire(acquireCtx2)
 	require.NoError(t, err)
 	assert.EqualValues(t, maxSize, pool.pool.Stat().AcquiredResources())
@@ -676,86 +757,128 @@ func TestClientPool_MaxSize(t *testing.T) {
 
 	// Cleanup
 	res.Release()
+
 	for i := 1; i < len(resources); i++ {
 		resources[i].Release()
 	}
+
 	close(blockDial) // Unblock any potentially waiting dialer
 }
 
 func TestClientPool_Close(t *testing.T) {
 	closeCount := atomic.Int32{}
+
+	var wg sync.WaitGroup
+
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+		wg.Add(2)
+
 		mockC := &mockPoolClient{
 			closeFunc: func() error {
+				defer wg.Done()
 				closeCount.Add(1)
 				return nil
 			},
 		}
+
 		return NewClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://", MaxSize: 2}
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
 	// Acquire some clients
-	res1, _ := pool.pool.Acquire(context.Background())
-	res2, _ := pool.pool.Acquire(context.Background())
+	res1, _ := pool.pool.Acquire(t.Context())
+	res2, _ := pool.pool.Acquire(t.Context())
+
 	res1.Release() // One idle, one acquired
 
 	assert.EqualValues(t, 1, pool.pool.Stat().IdleResources())
 	assert.EqualValues(t, 1, pool.pool.Stat().AcquiredResources())
 	assert.EqualValues(t, 2, pool.pool.Stat().TotalResources())
 
+	// Close() will block waiting for all resources to be returned, return async
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		// Release acquired resource after pool close (should be handled gracefully by puddle)
+		res2.Release()
+	}()
+
 	pool.Close()
 
+	wg.Wait()
 	assert.True(t, pool.closed, "Pool should be marked as closed")
-	assert.EqualValues(t, 2, closeCount.Load(), "Both clients should be closed")
+	assert.EqualValues(t, 4, closeCount.Load(), "Both clients should be closed")
 	assert.EqualValues(t, 0, pool.pool.Stat().TotalResources(), "Pool stats should be zero after close")
 
 	// Try acquiring after close
-	_, err := pool.pool.Acquire(context.Background())
+	_, err := pool.pool.Acquire(t.Context())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, puddle.ErrClosedPool)
 
 	// Double close should be safe
 	pool.Close()
-	assert.EqualValues(t, 2, closeCount.Load(), "Close count should not increase on double close")
-
-	// Release acquired resource after pool close (should be handled gracefully by puddle)
-	res2.Release()
+	assert.EqualValues(t, 4, closeCount.Load(), "Close count should not increase on double close")
 }
 
 func TestClientPool_Reset(t *testing.T) {
 	closeCount := atomic.Int32{}
 	dialCount := atomic.Int32{}
+
+	var wg1 sync.WaitGroup
+
+	var wg2 sync.WaitGroup
+
 	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
-		dialCount.Add(1)
+		dialcount := dialCount.Add(1)
+		switch dialcount {
+		case 1:
+			wg1.Add(2)
+		case 2:
+			wg2.Add(2)
+		}
+
 		mockC := &mockPoolClient{
 			closeFunc: func() error {
+				defer func() {
+					switch dialcount {
+					case 1:
+						wg1.Done()
+					case 2:
+						wg2.Done()
+					}
+				}()
 				closeCount.Add(1)
 				return nil
 			},
 		}
+
 		return NewClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://", MaxSize: 2}
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
-	// NOTE: cleanup is intentionally NOT deferred here, it's called explicitly in the test body.
-	// defer cleanup() // Ensure cleanup is called
+	defer cleanup()
 
 	// Acquire clients
-	res1, _ := pool.pool.Acquire(context.Background())
-	res2, _ := pool.pool.Acquire(context.Background())
+	res1, _ := pool.pool.Acquire(t.Context())
+	res2, _ := pool.pool.Acquire(t.Context())
+
 	res1.Release() // One idle, one acquired
 
 	assert.EqualValues(t, 2, dialCount.Load())
 	assert.EqualValues(t, 1, pool.pool.Stat().IdleResources())
 	assert.EqualValues(t, 1, pool.pool.Stat().AcquiredResources())
 
+	go func() {
+	}()
+
 	pool.Reset()
 
+	wg1.Wait()
 	// Reset should destroy idle resources immediately
-	assert.EqualValues(t, 1, closeCount.Load(), "Idle client should be closed on Reset")
+	assert.EqualValues(t, 2, closeCount.Load(), "Idle client should be closed on Reset")
 	assert.EqualValues(t, 0, pool.pool.Stat().IdleResources())
 	// Acquired resources are not closed by Reset itself, but marked for destruction on release
 	assert.EqualValues(t, 1, pool.pool.Stat().AcquiredResources())
@@ -763,13 +886,15 @@ func TestClientPool_Reset(t *testing.T) {
 
 	// Release the acquired resource - it should now be destroyed
 	res2.Release()
-	assert.EqualValues(t, 2, closeCount.Load(), "Acquired client should be closed on release after Reset")
+	wg2.Wait()
+	assert.EqualValues(t, 4, closeCount.Load(), "Acquired client should be closed on release after Reset")
 	assert.EqualValues(t, 0, pool.pool.Stat().TotalResources(), "Pool should be empty after releasing post-Reset")
 
 	// Acquire again, should dial a new one
-	_, err := pool.pool.Acquire(context.Background())
+	res3, err := pool.pool.Acquire(t.Context())
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, dialCount.Load(), "Should dial a new client after Reset")
+	res3.Release()
 }
 
 // Test other call types (Batch, Raw, WithTimeout) briefly, assuming core logic is tested by Call/Notify
@@ -795,11 +920,12 @@ func TestClientPool_CallBatch(t *testing.T) {
 		return NewClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://"}
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
 	req := NewBatch[*Request](0)
-	_, err := pool.CallBatch(context.Background(), req)
+	_, err := pool.CallBatch(t.Context(), req)
 
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, encodeCount.Load(), "Encode count mismatch")
@@ -827,11 +953,12 @@ func TestClientPool_CallRaw(t *testing.T) {
 		return NewClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://"}
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
 	req := RawRequest(`{}`)
-	_, err := pool.CallRaw(context.Background(), req)
+	_, err := pool.CallRaw(t.Context(), req)
 
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, encodeCount.Load(), "Encode count mismatch")
@@ -860,12 +987,13 @@ func TestClientPool_CallWithTimeout(t *testing.T) {
 		return NewClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://"}
+
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
 	req := NewRequest(int64(1), "timeoutMethod")
 	timeout := 50 * time.Millisecond
-	_, err := pool.CallWithTimeout(context.Background(), timeout, req)
+	_, err := pool.CallWithTimeout(t.Context(), timeout, req)
 
 	require.Error(t, err)
 	// The error comes from the encodeFunc context check
