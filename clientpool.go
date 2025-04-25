@@ -145,19 +145,16 @@ func (cp *ClientPool) Reset() {
 func releaseMaybeRetry(res *puddle.Resource[*Client], err error) (needsRetry bool) {
 	// Errors that need special handling
 	if err != nil {
+		// Always destroy handle on error, even on cancel, buffers may be in an uncertain state.
+		res.Destroy()
+
 		// Because of error wrapping its better to just special case some handling
 		switch {
-		// Context was cancelled, by may not be a timeout so client is still OK
-		case errors.Is(err, context.Canceled):
-			res.Release()
-			return false
-		// Timeout, destroy the handle
-		case errors.Is(err, context.DeadlineExceeded):
-			res.Destroy()
+		// Cancels and deadlines should not try again
+		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 			return false
 		// Broken stream, try a new handle
-		case errors.Is(err, io.EOF), errors.Is(err, net.ErrClosed), errors.Is(err, os.ErrClosed):
-			res.Destroy()
+		case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, net.ErrClosed), errors.Is(err, os.ErrClosed):
 			return true
 		}
 	}
