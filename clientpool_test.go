@@ -65,14 +65,13 @@ func (m *mockPoolClient) Close() error {
 	return nil
 }
 
-// --- Test Helper ---
-
-func setupTestPool(t *testing.T, config ClientPoolConfig, dialFunc func(ctx context.Context, uri string) (*Client, error)) (*ClientPool, func()) {
+// --- Test Helper ---.
+func setupTestPool(t *testing.T, config ClientPoolConfig, dialFunc func(ctx context.Context, uri string) (*Client, error)) (_ *ClientPool, cleanup func()) {
 	t.Helper()
 
 	if dialFunc == nil {
 		// Default mock dialer if none provided
-		dialFunc = func(ctx context.Context, uri string) (*Client, error) {
+		dialFunc = func(_ context.Context, _ string) (*Client, error) {
 			mockC := &mockPoolClient{}
 			// Wrap mock in actual Client struct using its Encoder/Decoder interfaces
 			return NewClient(mockC, mockC), nil
@@ -82,7 +81,7 @@ func setupTestPool(t *testing.T, config ClientPoolConfig, dialFunc func(ctx cont
 	pool, err := NewClientPoolWithDialer(t.Context(), config, dialFunc)
 	require.NoError(t, err, "Failed to create client pool")
 
-	cleanup := func() {
+	cleanup = func() {
 		pool.Close()
 	}
 
@@ -94,7 +93,7 @@ func setupTestPool(t *testing.T, config ClientPoolConfig, dialFunc func(ctx cont
 func TestNewClientPool(t *testing.T) {
 	t.Run("Defaults", func(t *testing.T) {
 		dialCount := atomic.Int32{}
-		dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+		dialFunc := func(_ context.Context, _ string) (*Client, error) {
 			dialCount.Add(1)
 
 			mockC := &mockPoolClient{}
@@ -115,7 +114,7 @@ func TestNewClientPool(t *testing.T) {
 
 	t.Run("AcquireOnCreate_Success", func(t *testing.T) {
 		dialCount := atomic.Int32{}
-		dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+		dialFunc := func(_ context.Context, _ string) (*Client, error) {
 			dialCount.Add(1)
 
 			mockC := &mockPoolClient{}
@@ -135,7 +134,7 @@ func TestNewClientPool(t *testing.T) {
 
 	t.Run("AcquireOnCreate_Failure", func(t *testing.T) {
 		dialErr := errors.New("dial failed")
-		dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+		dialFunc := func(_ context.Context, _ string) (*Client, error) {
 			return nil, dialErr
 		}
 		config := ClientPoolConfig{URI: "mock://", AcquireOnCreate: true}
@@ -182,23 +181,24 @@ func TestClientPool_Call_Success(t *testing.T) {
 	encodeCount := atomic.Int32{}
 	decodeCount := atomic.Int32{}
 	mockC := &mockPoolClient{
-		encodeFunc: func(ctx context.Context, v any) error {
+		encodeFunc: func(_ context.Context, v any) error {
 			encodeCount.Add(1)
 			req, ok := v.(*Request)
 			require.True(t, ok, "Expected *Request type")
 			assert.Equal(t, "testMethod", req.Method)
 			return nil // Simulate successful encode
 		},
-		decodeFunc: func(ctx context.Context, v any) error {
+		decodeFunc: func(_ context.Context, v any) error {
 			decodeCount.Add(1)
 			// Simulate server sending a successful response
 			resp := NewResponseWithResult(int64(1), "success") // Assuming ID 1 from req
-			raw, _ := json.Marshal(resp)
+			raw, err := json.Marshal(resp)
+			assert.NoError(t, err)
 			// Need to unmarshal the raw response into the Response struct pointer passed to Decode
 			return json.Unmarshal(raw, v)
 		},
 	}
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*Client, error) {
 		return NewClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://", Retries: 1} // 1 retry = 2 attempts
@@ -235,7 +235,7 @@ func TestClientPool_Call_RetryableError(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*Client, error) {
 		currentDial := dialCount.Add(1)
 
 		if currentDial == 1 {
@@ -243,20 +243,21 @@ func TestClientPool_Call_RetryableError(t *testing.T) {
 		}
 
 		mockC := &mockPoolClient{
-			encodeFunc: func(ctx context.Context, v any) error {
+			encodeFunc: func(_ context.Context, _ any) error {
 				encodeCount.Add(1)
 				if currentDial == 1 { // Fail encode on the first client
 					return retryableErr
 				}
 				return nil // Succeed encode on the second client
 			},
-			decodeFunc: func(ctx context.Context, v any) error {
+			decodeFunc: func(_ context.Context, v any) error {
 				// This should only be called for the second client
 				require.EqualValues(t, 2, currentDial, "Decode called on wrong client")
 				decodeCount.Add(1)
 				// Simulate successful response after retry
 				resp := NewResponseWithResult(int64(1), "success_after_retry") // Assuming ID 1
-				raw, _ := json.Marshal(resp)
+				raw, err := json.Marshal(resp)
+				assert.NoError(t, err)
 				return json.Unmarshal(raw, v)
 			},
 			closeFunc: func() error {
@@ -308,16 +309,16 @@ func TestClientPool_Call_NonRetryableError(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*Client, error) {
 		wg.Add(2)
 		dialCount.Add(1)
 
 		mockC := &mockPoolClient{
-			encodeFunc: func(ctx context.Context, v any) error {
+			encodeFunc: func(_ context.Context, _ any) error {
 				encodeCount.Add(1)
 				return nonRetryableErr // Fail encode immediately
 			},
-			decodeFunc: func(ctx context.Context, v any) error {
+			decodeFunc: func(_ context.Context, _ any) error {
 				// Should not be called
 				decodeCount.Add(1)
 				t.Error("Decode should not be called on non-retryable error")
@@ -366,16 +367,16 @@ func TestClientPool_Call_RetriesExceeded(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*Client, error) {
 		wg.Add(2)
 		dialCount.Add(1)
 
 		mockC := &mockPoolClient{
-			encodeFunc: func(ctx context.Context, v any) error {
+			encodeFunc: func(_ context.Context, _ any) error {
 				encodeCount.Add(1)
 				return persistentErr // Always fail encode
 			},
-			decodeFunc: func(ctx context.Context, v any) error {
+			decodeFunc: func(_ context.Context, _ any) error {
 				// Should not be called
 				decodeCount.Add(1)
 				t.Error("Decode should not be called when encode fails")
@@ -416,7 +417,7 @@ func TestClientPool_Notify_Success(t *testing.T) {
 	encodeCount := atomic.Int32{}
 	decodeCount := atomic.Int32{}
 	mockC := &mockPoolClient{
-		encodeFunc: func(ctx context.Context, v any) error {
+		encodeFunc: func(_ context.Context, v any) error {
 			encodeCount.Add(1)
 			_, ok := v.(*Notification)
 			require.True(t, ok, "Expected *Notification type")
@@ -424,14 +425,14 @@ func TestClientPool_Notify_Success(t *testing.T) {
 			// The mock Encode doesn't know it's a notify, but the pool logic handles not calling Decode.
 			return nil // Notify encode succeeds
 		},
-		decodeFunc: func(ctx context.Context, v any) error {
+		decodeFunc: func(_ context.Context, _ any) error {
 			// Should not be called for Notify
 			decodeCount.Add(1)
 			t.Error("Decode should not be called for Notify")
 			return errors.New("decode should not be called for Notify")
 		},
 	}
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*Client, error) {
 		return NewClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://"}
@@ -456,7 +457,7 @@ func TestClientPool_Notify_RetryableError(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*Client, error) {
 		currentDial := dialCount.Add(1)
 
 		if currentDial == 1 {
@@ -464,14 +465,14 @@ func TestClientPool_Notify_RetryableError(t *testing.T) {
 		}
 
 		mockC := &mockPoolClient{
-			encodeFunc: func(ctx context.Context, v any) error {
+			encodeFunc: func(_ context.Context, _ any) error {
 				encodeCount.Add(1)
 				if currentDial == 1 {
 					return retryableErr // Fail encode first time
 				}
 				return nil // Succeed encode second time
 			},
-			decodeFunc: func(ctx context.Context, v any) error {
+			decodeFunc: func(_ context.Context, _ any) error {
 				// Should not be called for Notify
 				decodeCount.Add(1)
 				t.Error("Decode should not be called for Notify")
@@ -511,13 +512,13 @@ func TestClientPool_Notify_RetriesExceeded(t *testing.T) {
 	decodeCount := atomic.Int32{}
 	persistentErr := io.ErrUnexpectedEOF // Yet another retryable error
 
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*Client, error) {
 		mockC := &mockPoolClient{
-			encodeFunc: func(ctx context.Context, v any) error {
+			encodeFunc: func(_ context.Context, _ any) error {
 				encodeCount.Add(1)
 				return persistentErr // Always fail encode
 			},
-			decodeFunc: func(ctx context.Context, v any) error {
+			decodeFunc: func(_ context.Context, _ any) error {
 				// Should not be called for Notify
 				decodeCount.Add(1)
 				t.Error("Decode should not be called for Notify")
@@ -546,7 +547,7 @@ func TestClientPool_Notify_RetriesExceeded(t *testing.T) {
 func TestClientPool_ContextCancel_Acquire(t *testing.T) {
 	// Use a dialer that blocks until context is cancelled
 	dialStarted := make(chan struct{})
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(ctx context.Context, _ string) (*Client, error) {
 		close(dialStarted) // Signal that dial has started
 		<-ctx.Done()       // Wait for cancellation
 
@@ -585,7 +586,7 @@ func TestClientPool_ContextCancel_DuringCall(t *testing.T) {
 	encodeCtxDone := make(chan struct{})
 
 	mockC := &mockPoolClient{
-		encodeFunc: func(ctx context.Context, v any) error {
+		encodeFunc: func(ctx context.Context, _ any) error {
 			close(encodeStarted)
 			select {
 			case <-ctx.Done():
@@ -595,13 +596,13 @@ func TestClientPool_ContextCancel_DuringCall(t *testing.T) {
 				return errors.New("test timeout")
 			}
 		},
-		decodeFunc: func(ctx context.Context, v any) error {
+		decodeFunc: func(_ context.Context, _ any) error {
 			// Should not be called if encode is cancelled
 			t.Error("Decode should not be called when encode is cancelled")
 			return errors.New("decode should not be called")
 		},
 	}
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*Client, error) {
 		return NewClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://", MaxSize: 1}
@@ -643,7 +644,7 @@ func TestClientPool_IdleTimeout(t *testing.T) {
 
 	closeCount := atomic.Int32{}
 	dialCount := atomic.Int32{}
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*Client, error) {
 		dialCount.Add(1)
 
 		mockC := &mockPoolClient{
@@ -696,7 +697,7 @@ func TestClientPool_MaxSize(t *testing.T) {
 	dialCount := atomic.Int32{}
 	blockDial := make(chan struct{}) // Channel to block dials
 
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(ctx context.Context, _ string) (*Client, error) {
 		dialCount.Add(1)
 		// Block subsequent dials if requested
 		if dialCount.Load() > maxSize {
@@ -770,7 +771,7 @@ func TestClientPool_Close(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*Client, error) {
 		wg.Add(2)
 
 		mockC := &mockPoolClient{
@@ -830,7 +831,7 @@ func TestClientPool_Reset(t *testing.T) {
 
 	var wg2 sync.WaitGroup
 
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*Client, error) {
 		dialcount := dialCount.Add(1)
 		switch dialcount {
 		case 1:
@@ -903,20 +904,21 @@ func TestClientPool_CallBatch(t *testing.T) {
 	encodeCount := atomic.Int32{}
 	decodeCount := atomic.Int32{}
 	mockC := &mockPoolClient{
-		encodeFunc: func(ctx context.Context, v any) error {
+		encodeFunc: func(_ context.Context, v any) error {
 			encodeCount.Add(1)
 			_, ok := v.(Batch[*Request])
 			require.True(t, ok, "Expected Batch[*Request] type")
 			return nil
 		},
-		decodeFunc: func(ctx context.Context, v any) error {
+		decodeFunc: func(_ context.Context, v any) error {
 			decodeCount.Add(1)
 			respBatch := NewBatch[*Response](0) // Dummy empty batch response
-			raw, _ := json.Marshal(respBatch)
+			raw, err := json.Marshal(respBatch)
+			assert.NoError(t, err)
 			return json.Unmarshal(raw, v)
 		},
 	}
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*Client, error) {
 		return NewClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://"}
@@ -936,20 +938,21 @@ func TestClientPool_CallRaw(t *testing.T) {
 	encodeCount := atomic.Int32{}
 	decodeCount := atomic.Int32{}
 	mockC := &mockPoolClient{
-		encodeFunc: func(ctx context.Context, v any) error {
+		encodeFunc: func(_ context.Context, v any) error {
 			encodeCount.Add(1)
 			_, ok := v.(json.RawMessage) // Raw calls pass json.RawMessage
 			require.True(t, ok, "Expected json.RawMessage type")
 			return nil
 		},
-		decodeFunc: func(ctx context.Context, v any) error {
+		decodeFunc: func(_ context.Context, v any) error {
 			decodeCount.Add(1)
 			respObj := NewResponseWithResult("rawID", "raw_ok")
-			raw, _ := json.Marshal(respObj)
+			raw, err := json.Marshal(respObj)
+			assert.NoError(t, err)
 			return json.Unmarshal(raw, v)
 		},
 	}
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*Client, error) {
 		return NewClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://"}
@@ -968,7 +971,7 @@ func TestClientPool_CallRaw(t *testing.T) {
 func TestClientPool_CallWithTimeout(t *testing.T) {
 	encodeStarted := make(chan struct{})
 	mockC := &mockPoolClient{
-		encodeFunc: func(ctx context.Context, v any) error {
+		encodeFunc: func(ctx context.Context, _ any) error {
 			close(encodeStarted)
 			select {
 			case <-ctx.Done(): // Wait for timeout
@@ -977,13 +980,13 @@ func TestClientPool_CallWithTimeout(t *testing.T) {
 				return errors.New("should have timed out")
 			}
 		},
-		decodeFunc: func(ctx context.Context, v any) error {
+		decodeFunc: func(_ context.Context, _ any) error {
 			// Should not be called if encode times out
 			t.Error("Decode should not be called when encode times out")
 			return errors.New("decode should not be called")
 		},
 	}
-	dialFunc := func(ctx context.Context, uri string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*Client, error) {
 		return NewClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://"}
