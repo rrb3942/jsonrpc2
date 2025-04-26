@@ -22,9 +22,6 @@ type ErrorData = Data
 //	details := map[string]string{"field": "email", "reason": "must be a valid email address"}
 //	errData := jsonrpc2.NewErrorData(details)
 //
-//	// This errData can then be used with an Error:
-//	rpcErr := jsonrpc2.ErrInvalidParams.WithData(errData)
-//
 // See [Data] for more details on how the value is handled.
 func NewErrorData(v any) ErrorData {
 	// Ensure the 'present' flag is set, indicating this data exists,

@@ -21,9 +21,6 @@ type Result = Data
 //	// Create a result containing a simple string.
 //	resultData := jsonrpc2.NewResult("operation successful")
 //
-//	// This resultData can then be used with a Response:
-//	resp := jsonrpc2.NewResponseWithResult(1, resultData) // ID 1
-//
 // See [Data] for more details on how the value is handled.
 func NewResult(v any) Result {
 	// Ensure the 'present' flag is set, indicating this result exists,
