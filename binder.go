@@ -21,12 +21,16 @@ import (
 // to prematurely terminate the [RPCServer] instance before it starts processing,
 // for example, based on information derived from the context (like authentication failure).
 //
+// When used to setup custom [Callbacks] or [Handler] the `stop` function may also be used to stop the [RPCServer]
+// on specific error, or other conditions.
+//
 // Example Use Case: Setting a custom OnError callback based on request headers.
 //
 //	func myBinderFunc(ctx context.Context, rpc *jsonrpc2.RPCServer, stop context.CancelCauseFunc) {
 //	    if req, ok := ctx.Value(jsonrpc2.CtxHTTPRequest).(*http.Request); ok {
 //	        if req.Header.Get("X-Debug-Mode") == "true" {
 //	            rpc.Callbacks.OnEncodingError = func(ctx context.Context, value any, err error) {
+//			defer stop("DEBUG STOP")
 //	                log.Printf("DEBUG: Encoding error for value %v: %v", value, err)
 //	            }
 //	        }
