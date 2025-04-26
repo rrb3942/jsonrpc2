@@ -128,7 +128,6 @@ func (h *HTTPBridge) Encode(ctx context.Context, v any) error {
 	}
 
 	// Technically we sent the request fine, so let decode figure it out
-	// Technically we sent the request fine, so let decode figure it out
 	return nil
 }
 
@@ -163,7 +162,7 @@ func (h *HTTPBridge) Decode(ctx context.Context, v any) error {
 		// Check if the response body buffer actually contains data.
 		if h.respBuffer.Len() > 0 {
 			// Attempt to unmarshal the stored response body.
-			return Unmarshal(h.respBuffer.Bytes(), v)
+			return h.Unmarshal(h.respBuffer.Bytes(), v)
 		}
 		// JSON content type was set, but the body was empty.
 		return fmt.Errorf("%w (status: %s)", ErrHTTPEmptyResponse, h.respStatus)
@@ -180,10 +179,8 @@ func (h *HTTPBridge) Decode(ctx context.Context, v any) error {
 }
 
 // Unmarshal implements the [Decoder] interface's Unmarshal method.
-// It simply delegates to the package-level [Unmarshal] variable (which defaults
-// to [encoding/json.Unmarshal]). This method is required by the [Decoder] interface
-// but is not typically used directly with HTTPBridge, as decoding happens
-// within the [HTTPBridge.Decode] method based on the HTTP response.
+// It simply delegates to the package-level [Unmarshal] variable.
+// This method is required by the [Decoder] interface.
 func (h *HTTPBridge) Unmarshal(data []byte, v any) error {
 	// Delegates to the package-level Unmarshal variable.
 	return Unmarshal(data, v)
