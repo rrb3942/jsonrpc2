@@ -14,55 +14,120 @@ import (
 )
 
 const (
-	// Default timeout in seconds when the pool dials a new client.
+	// DefaultPoolDialTimeout specifies the default timeout (30 seconds) used when establishing
+	// a new client connection within the pool. See [ClientPoolConfig.DialTimeout].
 	DefaultPoolDialTimeout = 30
-	// Default timeout in seconds for cleaning idle clients.
+	// DefaultPoolIdleTimeout specifies the default timeout (300 seconds or 5 minutes)
+	// after which idle client connections in the pool are closed. See [ClientPoolConfig.IdleTimeout].
 	DefaultPoolIdleTimeout = 300
 )
 
-// ErrRetriesExceeded is returned when the client pool exceeded its retry budget.
+// ErrRetriesExceeded is returned by ClientPool methods (Call*, Notify*) when an operation
+// fails repeatedly due to retryable errors (like network issues) and the configured
+// number of retries ([ClientPoolConfig.Retries]) is exhausted. The original error
+// that caused the final failure is joined with this error.
 var ErrRetriesExceeded = errors.New("retries exceeded")
 
-// ClientPoolConfig contains all the configuration options used when creating a [*ClientPool].
+// ClientPoolConfig holds configuration parameters for creating a [ClientPool].
 type ClientPoolConfig struct {
-	// Remote URI to connect to.
+	// URI specifies the target server address (e.g., "tcp://localhost:9090", "http://api.example.com/rpc").
+	// This URI is passed to the dialer function when new connections are needed. See [Dial] for supported schemes.
 	URI string
-	// Timeout for closing idle connections. Defaults to [DefaultPooLidleTimeout] seconds. Negative disables.
+
+	// IdleTimeout defines the maximum duration a client connection can remain idle in the pool
+	// before being closed. Defaults to [DefaultPoolIdleTimeout] seconds if zero.
+	// A negative value disables idle connection closing.
 	IdleTimeout time.Duration
-	// Timeout used when connection new clients. Defaults to [DefaultPoolDialTimeout] seconds. Must be positive.
+
+	// DialTimeout specifies the maximum time allowed for establishing a new client connection.
+	// Defaults to [DefaultPoolDialTimeout] seconds if zero or negative.
 	DialTimeout time.Duration
-	// Retries for IO errors. Cannot be less than 1, to handle stale clients.
+
+	// Retries specifies the number of times an operation (Call*, Notify*) should be retried
+	// if it fails with a potentially transient error (e.g., network error, EOF).
+	// The minimum effective value is 1 (meaning one initial attempt + one retry).
+	// Defaults to 0 (one initial attempt + one retry) if zero or negative.
 	Retries int
-	// Max number of client connections. If <= 0 default is min(runtime.NumCPU(), runtime.GOMAXPROCS(-1)) * 2
+
+	// MaxSize defines the maximum number of client connections allowed in the pool (both idle and in-use).
+	// If zero or negative, it defaults to `min(runtime.NumCPU(), runtime.GOMAXPROCS(-1)) * 2`.
+	// Attempts to acquire a connection when the pool is full will block until a connection becomes available
+	// or the context is cancelled.
 	MaxSize int32
-	// Force Acquiring on creation to verify configuration.
+
+	// AcquireOnCreate, if true, attempts to establish one initial connection when the pool is created.
+	// This verifies the URI and dialer configuration early. If the initial connection fails,
+	// [NewClientPool] or [NewClientPoolWithDialer] will return an error.
 	AcquireOnCreate bool
 }
 
-// ClientPool is a managed pool of [*Clients] that allows for concurrent calls.
+// ClientPool manages a pool of reusable [*Client] connections to a JSON-RPC server.
+// It allows multiple goroutines to make concurrent RPC calls efficiently by reusing
+// established connections. It also handles automatic retries for certain types of errors
+// and manages the lifecycle (creation, closing) of client connections.
+//
+// Use [NewClientPool] or [NewClientPoolWithDialer] to create instances.
 type ClientPool struct {
-	pool    *puddle.Pool[*Client]
-	idle    *time.Timer
-	retries int
-	closed  bool
-	mu      sync.Mutex
+	pool    *puddle.Pool[*Client] // Underlying connection pool from github.com/jackc/puddle/v2
+	idle    *time.Timer           // Timer for closing idle connections
+	retries int                   // Number of allowed attempts (initial + retries)
+	closed  bool                  // Flag indicating if Close() has been called
+	mu      sync.Mutex            // Protects access to closed flag and idle timer
 }
 
-// NewClientPool returns a new [*ClientPool] ready for use.
+// NewClientPool creates a new [ClientPool] using the default [Dial] function.
+// It connects to the server specified in [ClientPoolConfig.URI].
 //
-// If [ClientPooLConfig.AcquireOnCreate] is enabled, an error will be returned if an initial
-// acquire fails.
+// If [ClientPoolConfig.AcquireOnCreate] is true, it attempts to establish an initial
+// connection and returns an error if it fails.
+//
+// Example:
+//
+//	config := jsonrpc2.ClientPoolConfig{
+//	    URI:         "tcp://localhost:5000",
+//	    MaxSize:     10,
+//	    IdleTimeout: 5 * time.Minute,
+//	    Retries:     2, // Initial attempt + 2 retries = 3 total attempts
+//	}
+//	pool, err := jsonrpc2.NewClientPool(context.Background(), config)
+//	if err != nil {
+//	    log.Fatalf("Failed to create client pool: %v", err)
+//	}
+//	defer pool.Close()
+//	// Use pool.Call(), pool.Notify(), etc.
 func NewClientPool(nctx context.Context, config ClientPoolConfig) (*ClientPool, error) {
+	// Delegates to NewClientPoolWithDialer using the default Dial function.
 	return NewClientPoolWithDialer(nctx, config, Dial)
 }
 
-// NewClientPoolWithDialer returns a new [*ClientPool] ready for use with a custom dialer.
+// NewClientPoolWithDialer creates a new [ClientPool] using a custom dialer function.
+// This allows using non-standard transports or custom connection logic. The `dialFunc`
+// should establish a connection to the server specified by `config.URI` and return
+// a [*Client].
 //
-// A custom dialer may be used to support custom transports.
+// If [ClientPoolConfig.AcquireOnCreate] is true, it attempts to establish an initial
+// connection using the provided `dialFunc` and returns an error if it fails.
 //
-// If [ClientPooLConfig.AcquireOnCreate] is enabled, an error will be returned if an initial
-// acquire fails.
+// Example (using a custom dialer for TLS with specific config):
+//
+//	customTLSConfig := &tls.Config{ /* ... */ }
+//	customDialer := func(ctx context.Context, uri string) (*jsonrpc2.Client, error) {
+//	    // Example: Parse URI, dial with custom TLS config
+//	    // urlInfo, _ := url.Parse(uri) ... addr := urlInfo.Host ...
+//	    addr := "secure.example.com:443" // Simplified for example
+//	    dialer := &tls.Dialer{Config: customTLSConfig}
+//	    conn, err := dialer.DialContext(ctx, "tcp", addr)
+//	    if err != nil {
+//	        return nil, err
+//	    }
+//	    return jsonrpc2.NewClientIO(conn), nil
+//	}
+//
+//	config := jsonrpc2.ClientPoolConfig{ URI: "tls://secure.example.com:443", /* ... */ }
+//	pool, err := jsonrpc2.NewClientPoolWithDialer(context.Background(), config, customDialer)
+//	// ... handle error and use pool ...
 func NewClientPoolWithDialer(nctx context.Context, config ClientPoolConfig, dialFunc func(ctx context.Context, uri string) (*Client, error)) (*ClientPool, error) {
+	// Set defaults if zero values provided.
 	if config.IdleTimeout == 0 {
 		config.IdleTimeout = time.Duration(DefaultPoolIdleTimeout) * time.Second
 	}
@@ -102,13 +167,17 @@ func NewClientPoolWithDialer(nctx context.Context, config ClientPoolConfig, dial
 	}
 
 	cpool := &ClientPool{pool: pool}
-	cpool.retries = max(config.Retries, 1)
-	cpool.retries++
+	// Ensure at least one retry attempt beyond the initial try.
+	// The loop logic uses `range cp.retries`, so retries=1 means 2 total attempts.
+	cpool.retries = max(config.Retries, 0) + 1 // config.Retries=0 -> 1 attempt; config.Retries=1 -> 2 attempts etc.
 
+	// Setup idle connection cleanup if IdleTimeout is positive.
 	if config.IdleTimeout > 0 {
-		cpool.idle = time.AfterFunc(config.IdleTimeout, func() {
+		cpool.idle = time.AfterFunc(config.IdleTimeout, func() { // Initial delay
 			cpool.mu.Lock()
 			defer cpool.mu.Unlock()
+
+			// Check if pool was closed while waiting for the lock or timer.
 
 			if cpool.closed {
 				return
@@ -132,53 +201,97 @@ func NewClientPoolWithDialer(nctx context.Context, config ClientPoolConfig, dial
 	return cpool, nil
 }
 
-// Close closes a pool and all underlying clients.
-// After a call to Close the pool should not be used again.
+// Close gracefully shuts down the client pool.
+// It stops the idle connection cleanup timer, closes the underlying `puddle.Pool`,
+// which in turn closes all idle connections and waits for any acquired connections
+// to be released before closing them.
+//
+// After Close returns, the pool should not be used. Calling methods on a closed
+// pool will likely result in errors (e.g., `puddle.ErrClosedPool`).
+// It is safe to call Close multiple times.
 func (cp *ClientPool) Close() {
 	cp.mu.Lock()
-	defer cp.mu.Unlock()
-
+	if cp.closed {
+		cp.mu.Unlock()
+		return // Already closed
+	}
 	cp.closed = true
 
+	// Stop the idle timer goroutine if it exists.
 	if cp.idle != nil {
 		cp.idle.Stop()
 	}
+	cp.mu.Unlock() // Unlock before closing the pool, as pool.Close() might block.
 
+	// Close the underlying puddle pool. This handles closing connections.
 	cp.pool.Close()
 }
 
-// Reset will reset the underlying pool, removing all current connections allowing for new ones to be created.
+// Reset closes all idle connections in the pool and marks all currently acquired
+// connections to be closed when they are released. Any subsequent Acquire calls
+// will create new connections.
+// This is useful for forcing connections to be re-established, for example, after
+// a network configuration change or suspected server issue.
 func (cp *ClientPool) Reset() {
 	cp.pool.Reset()
 }
 
+// releaseMaybeRetry is an internal helper function to manage the lifecycle of a
+// puddle resource ([*puddle.Resource[*Client]]) after a call attempt.
+// It decides whether the error warrants destroying the client connection and
+// potentially retrying the operation with a new connection.
 func releaseMaybeRetry(res *puddle.Resource[*Client], err error) (needsRetry bool) {
-	// Errors that need special handling
 	if err != nil {
-		// Always destroy handle on error, even on cancel, buffers may be in an uncertain state.
+		// Always destroy the connection resource on any error during a call.
+		// This ensures potentially corrupted connections are not reused.
 		res.Destroy()
 
-		// Because of error wrapping its better to just special case some handling
+		// Check if the error is one that suggests retrying might succeed
+		// (e.g., network errors, unexpected EOF).
+		// Context errors (canceled, deadline exceeded) are not retryable.
 		switch {
-		// Cancels and deadlines should not try again
 		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-			return false
-		// Broken stream, try a new handle
+			return false // Do not retry context errors
 		case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, net.ErrClosed), errors.Is(err, os.ErrClosed):
+			// These errors often indicate a broken connection; retrying with a new one might work.
 			return true
+		default:
+			// For other errors (e.g., application-level errors returned by the server,
+			// encoding/decoding errors not caught above), do not retry.
+			return false
 		}
 	}
 
+	// No error occurred, release the resource back to the pool for reuse.
 	res.Release()
-
-	return false
+	return false // No retry needed
 }
 
-// Call acquires a client from the pool and performs a [Client.Call].
+// Call acquires a client connection from the pool, sends the request using [Client.Call],
+// and returns the response.
+// If a retryable error occurs (e.g., network issue), it automatically retries the call
+// with a new connection up to the configured number of retries ([ClientPoolConfig.Retries]).
+// If retries are exhausted, it returns [ErrRetriesExceeded] joined with the last error encountered.
+//
+// Example:
+//
+//	req := jsonrpc2.NewRequest(1, "myMethod", nil)
+//	resp, err := pool.Call(context.Background(), req)
+//	if err != nil {
+//	    if errors.Is(err, jsonrpc2.ErrRetriesExceeded) {
+//	        log.Printf("Call failed after multiple retries: %v", err)
+//	    } else {
+//	        log.Printf("Call failed: %v", err)
+//	    }
+//	    return
+//	}
+//	// Process successful response...
 func (cp *ClientPool) Call(ctx context.Context, req *Request) (resp *Response, err error) {
+	// Loop for the configured number of attempts (initial + retries).
 	for range cp.retries {
+		// Check context cancellation before acquiring a resource.
 		if cerr := ctx.Err(); cerr != nil {
-			return nil, cerr
+			return nil, cerr // Return context error immediately
 		}
 
 		client, cerr := cp.pool.Acquire(ctx)
@@ -196,10 +309,14 @@ func (cp *ClientPool) Call(ctx context.Context, req *Request) (resp *Response, e
 		return resp, err
 	}
 
+	// If all retries failed, join ErrRetriesExceeded with the last error.
 	return nil, errors.Join(ErrRetriesExceeded, err)
 }
 
-// CallBatch acquires a client from the pool and performs a [Client.CallBatch].
+// CallBatch acquires a client connection from the pool, sends the batch request
+// using [Client.CallBatch], and returns the batch response.
+// Handles retries similarly to [ClientPool.Call].
+// Returns [ErrRetriesExceeded] if retries are exhausted.
 func (cp *ClientPool) CallBatch(ctx context.Context, req Batch[*Request]) (resp Batch[*Response], err error) {
 	for range cp.retries {
 		if cerr := ctx.Err(); cerr != nil {
@@ -224,7 +341,10 @@ func (cp *ClientPool) CallBatch(ctx context.Context, req Batch[*Request]) (resp 
 	return nil, errors.Join(ErrRetriesExceeded, err)
 }
 
-// CallRaw acquires a client from the pool and performs a [Client.CallRaw].
+// CallRaw acquires a client connection from the pool, sends the raw request
+// using [Client.CallRaw], and returns the response.
+// Handles retries similarly to [ClientPool.Call].
+// Returns [ErrRetriesExceeded] if retries are exhausted.
 func (cp *ClientPool) CallRaw(ctx context.Context, req RawRequest) (resp *Response, err error) {
 	for range cp.retries {
 		if cerr := ctx.Err(); cerr != nil {
@@ -249,31 +369,43 @@ func (cp *ClientPool) CallRaw(ctx context.Context, req RawRequest) (resp *Respon
 	return nil, errors.Join(ErrRetriesExceeded, err)
 }
 
-// CallWithTimeout acquires a client from the pool and performs a [Client.CallWithTimeout].
+// CallWithTimeout is a convenience method that calls [ClientPool.Call] with a derived context
+// that includes the specified `timeout`.
 func (cp *ClientPool) CallWithTimeout(ctx context.Context, timeout time.Duration, r *Request) (*Response, error) {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
-
 	return cp.Call(tctx, r)
 }
 
-// CallBatchWithTimeout acquires a client from the pool and performs a [Client.CallBatchWithTimeout].
+// CallBatchWithTimeout is a convenience method that calls [ClientPool.CallBatch] with a derived context
+// that includes the specified `timeout`.
 func (cp *ClientPool) CallBatchWithTimeout(ctx context.Context, timeout time.Duration, r Batch[*Request]) (Batch[*Response], error) {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
-
 	return cp.CallBatch(tctx, r)
 }
 
-// CallRawWithTimeout acquires a client from the pool and performs a [Client.CallRawWithTimeout].
+// CallRawWithTimeout is a convenience method that calls [ClientPool.CallRaw] with a derived context
+// that includes the specified `timeout`.
 func (cp *ClientPool) CallRawWithTimeout(ctx context.Context, timeout time.Duration, r RawRequest) (*Response, error) {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
-
 	return cp.CallRaw(tctx, r)
 }
 
-// Notify acquires a client from the pool and performs a [Client.Notify].
+// Notify acquires a client connection from the pool and sends the notification
+// using [Client.Notify]. Since notifications don't receive responses, this method
+// only returns errors related to acquiring a connection or sending the notification.
+// Handles retries similarly to [ClientPool.Call].
+// Returns [ErrRetriesExceeded] if retries are exhausted.
+//
+// Example:
+//
+//	notif := jsonrpc2.NewNotification("logEvent", map[string]any{"level": "warn", "msg": "Disk space low"})
+//	err := pool.Notify(context.Background(), notif)
+//	if err != nil {
+//	    log.Printf("Notify failed: %v", err)
+//	}
 func (cp *ClientPool) Notify(ctx context.Context, notify *Notification) (err error) {
 	for range cp.retries {
 		if cerr := ctx.Err(); cerr != nil {
@@ -298,7 +430,10 @@ func (cp *ClientPool) Notify(ctx context.Context, notify *Notification) (err err
 	return errors.Join(ErrRetriesExceeded, err)
 }
 
-// NotifyBatch acquires a client from the pool and performs a [Client.NotifyBatch].
+// NotifyBatch acquires a client connection from the pool and sends the batch notification
+// using [Client.NotifyBatch].
+// Handles retries similarly to [ClientPool.Notify].
+// Returns [ErrRetriesExceeded] if retries are exhausted.
 func (cp *ClientPool) NotifyBatch(ctx context.Context, notify Batch[*Notification]) (err error) {
 	for range cp.retries {
 		if cerr := ctx.Err(); cerr != nil {
@@ -323,7 +458,10 @@ func (cp *ClientPool) NotifyBatch(ctx context.Context, notify Batch[*Notificatio
 	return errors.Join(ErrRetriesExceeded, err)
 }
 
-// NotifyRaw acquires a client from the pool and performs a [Client.NotifyRaw].
+// NotifyRaw acquires a client connection from the pool and sends the raw notification
+// using [Client.NotifyRaw].
+// Handles retries similarly to [ClientPool.Notify].
+// Returns [ErrRetriesExceeded] if retries are exhausted.
 func (cp *ClientPool) NotifyRaw(ctx context.Context, notify RawNotification) (err error) {
 	for range cp.retries {
 		if cerr := ctx.Err(); cerr != nil {
@@ -348,26 +486,26 @@ func (cp *ClientPool) NotifyRaw(ctx context.Context, notify RawNotification) (er
 	return errors.Join(ErrRetriesExceeded, err)
 }
 
-// NotifyWithTimeout acquires a client from the pool and performs a [Client.NotifyWithTimeout].
+// NotifyWithTimeout is a convenience method that calls [ClientPool.Notify] with a derived context
+// that includes the specified `timeout`.
 func (cp *ClientPool) NotifyWithTimeout(ctx context.Context, timeout time.Duration, n *Notification) error {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
-
 	return cp.Notify(tctx, n)
 }
 
-// NotifyBatchWithTimeout acquires a client from the pool and performs a [Client.NotifyBatchWithTimeout].
+// NotifyBatchWithTimeout is a convenience method that calls [ClientPool.NotifyBatch] with a derived context
+// that includes the specified `timeout`.
 func (cp *ClientPool) NotifyBatchWithTimeout(ctx context.Context, timeout time.Duration, n Batch[*Notification]) error {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
-
 	return cp.NotifyBatch(tctx, n)
 }
 
-// NotifyRawWithTimeout acquires a client from the pool and performs a [Client.NotifyRawWithTimeout].
+// NotifyRawWithTimeout is a convenience method that calls [ClientPool.NotifyRaw] with a derived context
+// that includes the specified `timeout`.
 func (cp *ClientPool) NotifyRawWithTimeout(ctx context.Context, timeout time.Duration, n RawNotification) error {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
-
 	return cp.NotifyRaw(tctx, n)
 }
