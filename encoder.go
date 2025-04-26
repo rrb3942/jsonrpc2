@@ -16,8 +16,10 @@ var ErrEncoding = errors.New("jsonrpc2: encoding error")
 // It is used by [Client] and [Server] to send JSON data.
 //
 // Implementations MUST be safe for concurrent use by multiple goroutines.
-// They must correctly handle standard Go types and JSON interfaces like
-// [json.Marshaler], as well as respecting `json` struct tags like `omitempty`.
+//
+// A compatible implementation must handle standard JSON decoding, including types
+// like json.Marshaler, json.Unmarshaler, json.RawMessage, and json.Number.
+// Support for the `omitzero` struct tag (Go 1.24+) is also required.
 //
 // Implementations are encouraged to support [io.Closer] for resource cleanup
 // and [DeadlineWriter] for timeout handling, if applicable to the underlying transport.
