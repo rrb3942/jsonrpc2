@@ -45,11 +45,11 @@ type NewDecoderFunc func(r io.Reader) Decoder
 // It supports optional read limits via [StreamDecoder.SetLimit] and idle timeouts
 // via [StreamDecoder.SetIdleTimeout].
 type StreamDecoder struct {
-	r  io.Reader       // Underlying reader
+	r  io.Reader         // Underlying reader
 	lr *io.LimitedReader // Used when SetLimit is called
-	d  JSONDecoder     // The actual JSON decoder (e.g., from encoding/json)
-	n  int64           // Read limit in bytes (0 means no limit)
-	t  time.Duration   // Idle timeout duration (0 means no timeout)
+	d  JSONDecoder       // The actual JSON decoder (e.g., from encoding/json)
+	n  int64             // Read limit in bytes (0 means no limit)
+	t  time.Duration     // Idle timeout duration (0 means no timeout)
 }
 
 // NewDecoder creates a new [StreamDecoder] that reads from r.
@@ -131,6 +131,7 @@ func (i *StreamDecoder) ioErr(e error) error {
 // idle timeouts are involved, utilizing DeadlineReader or io.Closer if available.
 func (i *StreamDecoder) cancelDecode(ctx context.Context, cReader io.Closer, v any) error {
 	var dctx context.Context
+
 	var stop context.CancelFunc
 
 	deadLiner, haveDeadline := cReader.(DeadlineReader)
@@ -140,7 +141,7 @@ func (i *StreamDecoder) cancelDecode(ctx context.Context, cReader io.Closer, v a
 		// A zero time value clears the deadline.
 		if err := deadLiner.SetReadDeadline(time.Time{}); err != nil {
 			// Failing to clear the deadline is problematic.
-			return err // Or wrap error? Consider implications.
+			return err
 		}
 	}
 
@@ -151,9 +152,11 @@ func (i *StreamDecoder) cancelDecode(ctx context.Context, cReader io.Closer, v a
 		// No idle timeout, just use the parent context for cancellation.
 		dctx, stop = context.WithCancel(ctx)
 	}
+
 	defer stop() // Ensure resources associated with dctx are released.
 
 	var wg sync.WaitGroup
+
 	wg.Add(1) // Wait group to ensure the AfterFunc goroutine completes.
 
 	// This function will execute if the context (dctx) is cancelled or times out.
@@ -179,17 +182,12 @@ func (i *StreamDecoder) cancelDecode(ctx context.Context, cReader io.Closer, v a
 		wg.Wait()
 	}
 
-	// Check if the context expired (timed out or cancelled).
-	contextErr := dctx.Err()
-
 	// If decoding failed, join the decode error with any context error.
 	if decodeErr != nil {
-		// errors.Join handles nil errors gracefully.
-		return errors.Join(decodeErr, contextErr)
+		return errors.Join(decodeErr, dctx.Err())
 	}
 
-	// If decoding succeeded, still return any context error (e.g., if cancelled just after success).
-	return contextErr
+	return nil
 }
 
 // Decode reads the next JSON value from the stream and decodes it into v.
