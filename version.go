@@ -18,7 +18,7 @@ var errWrongProtoVerDecode = fmt.Errorf("%w (%w)", ErrDecoding, ErrWrongProtocol
 
 // Version represents the "jsonrpc" field required in JSON-RPC 2.0 requests and responses.
 // Its primary role is to ensure the correct protocol version ("2.0") is specified
-// during JSON unmarshaling.
+// during JSON unmarshalling.
 //
 // The zero value of Version is considered invalid until successfully unmarshaled
 // from the correct JSON string `"2.0"`.
@@ -57,6 +57,7 @@ func (v *Version) UnmarshalJSON(data []byte) error {
 
 	// Mark as valid only if the string is exactly "2.0"
 	v.present = true
+
 	return nil
 }
 
@@ -71,5 +72,6 @@ func (v Version) MarshalJSON() ([]byte, error) { // Note: receiver is value type
 		// This should ideally not happen for a simple string marshal.
 		return nil, fmt.Errorf("%w: failed to marshal protocol version string (%w)", ErrEncoding, err)
 	}
+
 	return buf, nil
 }
