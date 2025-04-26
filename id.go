@@ -145,7 +145,7 @@ func (id *ID) IsNull() bool {
 	return id.present && id.value == nil
 }
 
-// RawValue returns the underlying Go value of the ID.
+// Value returns the underlying Go value of the ID.
 // The returned type will be one of: string, int64, json.Number, or nil.
 // Returns nil if the ID is the zero value ([ID.IsZero] is true).
 //
@@ -154,10 +154,10 @@ func (id *ID) IsNull() bool {
 //	idInt := jsonrpc2.NewID(int64(123))
 //	idStr := jsonrpc2.NewID("req-abc")
 //	idNull := jsonrpc2.NewNullID()
-//	fmt.Printf("%T\n", idInt.RawValue())  // Output: int64
-//	fmt.Printf("%T\n", idStr.RawValue())  // Output: string
-//	fmt.Printf("%T\n", idNull.RawValue()) // Output: <nil>
-func (id *ID) RawValue() any {
+//	fmt.Printf("%T\n", idInt.Value())  // Output: int64
+//	fmt.Printf("%T\n", idStr.Value())  // Output: string
+//	fmt.Printf("%T\n", idNull.Value()) // Output: <nil>
+func (id *ID) Value() any {
 	// If not present (zero value), return nil explicitly.
 	if !id.present {
 		return nil

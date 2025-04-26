@@ -62,11 +62,11 @@ func NewBatch[B Batchable](size int) Batch[B] {
 //
 //	jsonrpc2.BatchCorrelate(reqBatch, resBatch, func(req *jsonrpc2.Request, res *jsonrpc2.Response) bool {
 //	    if req != nil && res != nil {
-//	        fmt.Printf("Matched Request ID %v with Response ID %v\n", req.ID.RawValue(), res.ID.RawValue())
+//	        fmt.Printf("Matched Request ID %v with Response ID %v\n", req.ID.Value(), res.ID.Value())
 //	    } else if req != nil {
-//	        fmt.Printf("Unmatched Request ID %v\n", req.ID.RawValue())
+//	        fmt.Printf("Unmatched Request ID %v\n", req.ID.Value())
 //	    } else if res != nil {
-//	        fmt.Printf("Unmatched Response ID %v\n", res.ID.RawValue())
+//	        fmt.Printf("Unmatched Response ID %v\n", res.ID.Value())
 //	    }
 //	    return true // Continue processing
 //	})
@@ -206,9 +206,9 @@ func (b *Batch[B]) Get(id ID) (B, bool) {
 //	batch.Add(req1, req2)
 //	fmt.Println(len(batch)) // Output: 2
 //	deleted, ok := batch.Delete(jsonrpc2.NewID(int64(1)))
-//	fmt.Println(ok, deleted.ID.RawValue()) // Output: true 1
+//	fmt.Println(ok, deleted.ID.Value()) // Output: true 1
 //	fmt.Println(len(batch)) // Output: 1
-//	fmt.Println(batch[0].ID.RawValue()) // Output: 2
+//	fmt.Println(batch[0].ID.Value()) // Output: 2
 func (b *Batch[B]) Delete(id ID) (B, bool) {
 	i := b.Index(id)
 	if i < 0 {

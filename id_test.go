@@ -190,7 +190,7 @@ func TestID_Equal(t *testing.T) {
 	}
 }
 
-func TestID_RawValue(t *testing.T) {
+func TestID_Value(t *testing.T) {
 	//nolint:govet //Dont shift order
 	tests := []struct {
 		name string
@@ -205,8 +205,8 @@ func TestID_RawValue(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.id.RawValue(); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ID.RawValue() = %v (%T), want %v (%T)", got, got, tt.want, tt.want)
+			if got := tt.id.Value(); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ID.Value() = %v (%T), want %v (%T)", got, got, tt.want, tt.want)
 			}
 		})
 	}

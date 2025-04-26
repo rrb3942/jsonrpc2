@@ -11,7 +11,7 @@ import (
 // ensuring that handler panics are logged even if no custom callbacks are configured.
 var DefaultOnHandlerPanic = func(ctx context.Context, req *Request, rec any) {
 	// Logs the error with relevant context.
-	slog.ErrorContext(ctx, "Panic recovered in JSON-RPC handler", "method", req.Method, "id", req.ID.RawValue(), "params", string(req.Params.RawMessage()), "panic_value", rec)
+	slog.ErrorContext(ctx, "Panic recovered in JSON-RPC handler", "method", req.Method, "id", req.ID.Value(), "params", string(req.Params.RawMessage()), "panic_value", rec)
 }
 
 // Callbacks defines a set of functions that can be registered with an [RPCServer]
