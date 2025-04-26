@@ -17,7 +17,8 @@ var (
 
 // HTTPBridge implements an [Encoder] and [Decoder] over a [http.Client].
 //
-// HTTPBridge is NOT go-routine safe.
+// HTTPBridge is NOT go-routine safe, but is safe for use with [*Client] or
+// [*ClientPool] which provide synchronization.
 type HTTPBridge struct {
 	client     *http.Client
 	url        string
