@@ -52,7 +52,7 @@ func (lw *lockWriter) Write(data []byte) (int, error) {
 type StreamEncoder struct {
 	lw *lockWriter   // Internal lock-protected writer
 	w  io.Writer     // Original underlying writer
-	e  JSONEncoder // The actual JSON encoder (e.g., from encoding/json)
+	e  JSONEncoder   // The actual JSON encoder (e.g., from encoding/json)
 	t  time.Duration // Idle timeout duration (0 means no timeout)
 }
 
@@ -119,9 +119,11 @@ func (i *StreamEncoder) cancelEncode(ctx context.Context, cWriter io.Closer, v a
 		// No idle timeout, just use the parent context for cancellation.
 		dctx, stop = context.WithCancel(ctx)
 	}
+
 	defer stop() // Ensure resources associated with dctx are released.
 
 	var wg sync.WaitGroup
+
 	wg.Add(1) // Wait group to ensure the AfterFunc goroutine completes.
 
 	// This function will execute if the context (dctx) is cancelled or times out.
@@ -147,17 +149,13 @@ func (i *StreamEncoder) cancelEncode(ctx context.Context, cWriter io.Closer, v a
 		wg.Wait()
 	}
 
-	// Check if the context expired (timed out or cancelled).
-	contextErr := dctx.Err()
-
 	// If encoding failed, join the encode error with any context error.
 	if encodeErr != nil {
 		// errors.Join handles nil errors gracefully.
-		return errors.Join(encodeErr, contextErr)
+		return errors.Join(encodeErr, dctx.Err())
 	}
 
-	// If encoding succeeded, still return any context error.
-	return contextErr
+	return nil
 }
 
 // Encode writes the JSON encoding of v to the underlying stream.
