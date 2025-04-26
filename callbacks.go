@@ -42,9 +42,9 @@ var DefaultOnHandlerPanic = func(ctx context.Context, req *Request, rec any) {
 //	// Now run the server... server.ListenAndServe(...)
 type Callbacks struct {
 	// OnExit is called when the [RPCServer.Run] method is about to return.
-	// The `err` parameter indicates the reason for exiting, which might be nil
-	// on graceful shutdown, or an error like [io.EOF], [context.Canceled],
-	// or a connection error.
+	// The `err` parameter indicates the reason for exiting.
+	// On graceful shutdown the error will usually include [context.Canceled] and/or [io.EOF],
+	// depending on the underlying stream/connection behaviour.
 	OnExit func(ctx context.Context, err error)
 
 	// OnDecodingError is called when the server fails to decode an incoming message
