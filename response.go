@@ -60,11 +60,11 @@ func NewResponseWithError[I int64 | string](id I, e error) *Response {
 // Example:
 //
 //	// Responding to a parsing error where the request ID is unknown
-//	parseErr := jsonrpc2.ErrParseError.WithData("Invalid JSON received")
+//	parseErr := jsonrpc2.ErrParseErrorError.WithData("Invalid JSON received")
 //	resp := jsonrpc2.NewResponseError(parseErr)
 //	// Marshals to: {"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error","data":"Invalid JSON received"},"id":null}
 func NewResponseError(e error) *Response {
-	// TODO: Consider smarter error code mapping here (e.g., check if e matches ErrParseError, etc.)
+	// TODO: Consider smarter error code mapping here (e.g., check if e matches ErrParseErrorError, etc.)
 	return &Response{ID: NewNullID(), Error: asError(e)}
 }
 

@@ -67,7 +67,7 @@ func (h *HTTPHandler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	if err != nil && !errors.Is(err, io.EOF) {
 		// Http server will give unexpectedEOF on malformed json
 		if errors.Is(err, io.ErrUnexpectedEOF) {
-			if buf, merr := Marshal(NewResponseError(ErrParse)); merr == nil {
+			if buf, merr := Marshal(NewResponseError(ErrParseError)); merr == nil {
 				_, _ = buffer.Write(buf)
 			}
 		} else {

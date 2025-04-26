@@ -191,7 +191,7 @@ func TestBatchCorrelate(t *testing.T) {
 	res1 := NewResponseWithResult(int64(1), "result1")
 	res2 := NewResponseWithError("req-2", ErrInternalError)
 	res4 := NewResponseWithResult(int64(4), "result4") // No matching request
-	resNull := NewResponseError(ErrParse)              // Null ID, no match
+	resNull := NewResponseError(ErrParseError)         // Null ID, no match
 
 	requests := NewBatch[*Request](0)
 	requests.Add(req1, req2, req3, req4)
@@ -427,7 +427,7 @@ func TestBatch_MarshalJSON_Response(t *testing.T) {
 	// Setup batch
 	res1 := NewResponseWithResult(int64(1), "result1")
 	res2 := NewResponseWithError("req-2", ErrInternalError.WithData("details"))
-	res3 := NewResponseError(ErrParse) // Null ID error response
+	res3 := NewResponseError(ErrParseError) // Null ID error response
 
 	batch := NewBatch[*Response](0)
 	batch.Add(res1, res2, res3)
@@ -435,8 +435,8 @@ func TestBatch_MarshalJSON_Response(t *testing.T) {
 	// Expected JSON
 	expectedJSON := `[
 		{"jsonrpc":"2.0","result":"result1","id":1},
-		{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal Error","data":"details"},"id":"req-2"},
-		{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse Error"},"id":null}
+		{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error","data":"details"},"id":"req-2"},
+		{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"},"id":null}
 	]`
 
 	// Marshal
@@ -463,15 +463,15 @@ func TestBatch_UnmarshalJSON_Response(t *testing.T) {
 	// Input JSON
 	inputJSON := `[
 		{"jsonrpc":"2.0","result":"result1","id":1},
-		{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal Error","data":"details"},"id":"req-2"},
-		{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse Error"},"id":null},
+		{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error","data":"details"},"id":"req-2"},
+		{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"},"id":null},
 		{"jsonrpc":"2.0","result":null,"id":3}
 	]`
 
 	// Expected Batch
 	res1 := NewResponseWithResult(int64(1), "result1")
 	res2 := NewResponseWithError("req-2", ErrInternalError.WithData("details"))
-	res3 := NewResponseError(ErrParse) // Creates null ID
+	res3 := NewResponseError(ErrParseError) // Creates null ID
 	res4 := NewResponseWithResult(int64(3), nil)
 
 	expectedBatch := NewBatch[*Response](0)

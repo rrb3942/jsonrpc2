@@ -213,7 +213,7 @@ func (rp *RPCServer) run(ctx context.Context, buf json.RawMessage, from net.Addr
 	case TypeObject:
 		rp.runRequest(ctx, buf, from)
 	default:
-		_ = rp.encoder.EncodeTo(ctx, &Response{ID: NewNullID(), Error: ErrParse}, from)
+		_ = rp.encoder.EncodeTo(ctx, &Response{ID: NewNullID(), Error: ErrParseError}, from)
 	}
 }
 
@@ -260,7 +260,7 @@ func (rp *RPCServer) Run(ctx context.Context) (err error) {
 
 		if err != nil {
 			if errors.As(err, &errSyntax) {
-				_ = rp.encoder.EncodeTo(ctx, NewResponseError(ErrParse.WithData(err.Error())), from)
+				_ = rp.encoder.EncodeTo(ctx, NewResponseError(ErrParseError.WithData(err.Error())), from)
 				rp.Callbacks.runOnDecodingError(ctx, nil, err)
 
 				// For stream decoders we need to close the connection as the buffer is all fubar

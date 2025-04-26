@@ -7,7 +7,7 @@ import (
 // Predefined JSON-RPC 2.0 errors as defined by the specification.
 // See: https://www.jsonrpc.org/specification#error_object
 var (
-	ErrParse            = NewError(-32700, "Parse error")       // Invalid JSON was received by the server. An error occurred on the server while parsing the JSON text.
+	ErrParseError       = NewError(-32700, "Parse error")       // Invalid JSON was received by the server. An error occurred on the server while parsing the JSON text.
 	ErrInvalidRequest   = NewError(-32600, "Invalid Request")   // The JSON sent is not a valid Request object.
 	ErrMethodNotFound   = NewError(-32601, "Method not found")  // The method does not exist / is not available.
 	ErrInvalidParams    = NewError(-32602, "Invalid params")    // Invalid method parameter(s).
@@ -109,7 +109,7 @@ func (e *Error) Data() *ErrorData {
 //
 //	detailedErr := jsonrpc2.ErrInvalidRequest.WithData("Request missing 'method' field")
 func (e Error) WithData(data any) Error {
-	return NewErrorWithData(e.Code(), e.Message(), NewErrorData(data))
+	return NewErrorWithData(e.Code(), e.Message(), data)
 }
 
 // Is reports whether the target error `t` is considered equivalent to this [Error].

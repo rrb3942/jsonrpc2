@@ -384,8 +384,8 @@ func TestRPCServer_Run_InvalidJSON_Stream(t *testing.T) {
 	assert.ErrorContains(t, err, "invalid character ']' after object key:value pair", "Run should return the JSON parsing error")
 
 	// Expect a ParseError response to have been written before the exit
-	expectedOutput := `{"jsonrpc":"2.0","error":{"code":-32700,"data":"invalid character ']' after object key:value pair","message":"Parse Error"},"id":null}`
-	assert.JSONEq(t, expectedOutput, serverOutput.String(), "Server should write Parse Error response")
+	expectedOutput := `{"jsonrpc":"2.0","error":{"code":-32700,"data":"invalid character ']' after object key:value pair","message":"Parse error"},"id":null}`
+	assert.JSONEq(t, expectedOutput, serverOutput.String(), "Server should write Parse error response")
 
 	// Callback should *not* have been called because the error is returned directly by DecodeFrom in Run loop
 	assert.Nil(t, decodeErr.Load(), "OnDecodingError callback should NOT have been called for direct DecodeFrom error")
@@ -496,7 +496,7 @@ func TestRPCServer_Run_HandlerPanic_Stream(t *testing.T) {
 
 	t.Log(serverOutput.String())
 	// Expect an InternalError response
-	expectedOutput := `{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal Error"},"id":3}`
+	expectedOutput := `{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error"},"id":3}`
 	assert.JSONEq(t, expectedOutput, serverOutput.String())
 	assert.NotNil(t, panicInfo.Load(), "OnHandlerPanic callback should have been called")
 	assert.Equal(t, "handler panic!", panicInfo.Load())
@@ -548,7 +548,7 @@ func TestRPCServer_Run_ContextCancel_Stream(t *testing.T) {
 	// The error passed to OnExit should reflect the context cancellation
 	assert.ErrorIs(t, exitErrVal, context.DeadlineExceeded, "OnExit error mismatch")
 
-	expectedOutput := `{"jsonrpc":"2.0","error":{"data":"context deadline exceeded","message":"Internal Error","code":-32603},"id":4}`
+	expectedOutput := `{"jsonrpc":"2.0","error":{"data":"context deadline exceeded","message":"Internal error","code":-32603},"id":4}`
 	// No response should be sent if cancelled mid-request
 	assert.JSONEq(t, expectedOutput, serverOutput.String(), "Expect server error")
 }

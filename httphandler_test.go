@@ -202,7 +202,7 @@ func TestHTTPHandler_ServeHTTP_InvalidJSON(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.False(t, rpcResp.Error.IsZero())
-	assert.True(t, rpcResp.Error.Is(ErrParse)) // Or InvalidRequest
+	assert.True(t, rpcResp.Error.Is(ErrParseError)) // Or InvalidRequest
 }
 
 func TestHTTPHandler_ServeHTTP_HandlerError(t *testing.T) {

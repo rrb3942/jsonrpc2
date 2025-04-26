@@ -211,7 +211,7 @@ func TestResponse_id(t *testing.T) {
 
 	respInt := &Response{ID: idInt, Result: NewResult("ok")}
 	respStr := &Response{ID: idStr, Error: ErrInternalError}
-	respNull := &Response{ID: idNull, Error: ErrParse}
+	respNull := &Response{ID: idNull, Error: ErrParseError}
 
 	assert.Equal(t, idInt, respInt.id())
 	assert.Equal(t, idStr, respStr.id())
@@ -253,7 +253,7 @@ func TestResponse_MarshalUnmarshalJSON(t *testing.T) {
 		{
 			name:         "Response with standard error, string ID",
 			response:     NewResponseWithError("req-xyz", stdErr),
-			expectedJSON: `{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal Error","data":"standard internal error"},"id":"req-xyz"}`,
+			expectedJSON: `{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error","data":"standard internal error"},"id":"req-xyz"}`,
 		},
 		{
 			name:         "Response with error, null ID",
