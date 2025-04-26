@@ -147,7 +147,7 @@ func (i *PacketConnDecoder) DecodeFrom(ctx context.Context, v any) (net.Addr, er
 
 // Unmarshal decodes a single JSON object from the provided byte slice into v.
 // This method implements the [PacketDecoder] interface requirement and is goroutine-safe.
-// It uses the global [Unmarshal] function variable (which defaults to [encoding/json.Unmarshal]).
+// It uses the global [Unmarshal] function variable.
 func (i *PacketConnDecoder) Unmarshal(data []byte, v any) error {
 	return Unmarshal(data, v)
 }
