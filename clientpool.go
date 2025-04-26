@@ -30,7 +30,7 @@ var ErrRetriesExceeded = errors.New("retries exceeded")
 
 // ClientPoolConfig holds configuration parameters for creating a [ClientPool].
 type ClientPoolConfig struct {
-	// URI specifies the target server address (e.g., "tcp://localhost:9090", "http://api.example.com/rpc").
+	// URI specifies the target server address (e.g., "tcp:localhost:9090", "http://api.example.com/rpc").
 	// This URI is passed to the dialer function when new connections are needed. See [Dial] for supported schemes.
 	URI string
 
@@ -46,7 +46,7 @@ type ClientPoolConfig struct {
 	// Retries specifies the number of times an operation (Call*, Notify*) should be retried
 	// if it fails with a potentially transient error (e.g., network error, EOF).
 	// The minimum effective value is 1 (meaning one initial attempt + one retry).
-	// Defaults to 0 (one initial attempt + one retry) if zero or negative.
+	// Defaults to 1 (one initial attempt + one retry) if zero or negative.
 	Retries int
 
 	// MaxSize defines the maximum number of client connections allowed in the pool (both idle and in-use).
@@ -84,7 +84,7 @@ type ClientPool struct {
 // Example:
 //
 //	config := jsonrpc2.ClientPoolConfig{
-//	    URI:         "tcp://localhost:5000",
+//	    URI:         "tcp:localhost:5000",
 //	    MaxSize:     10,
 //	    IdleTimeout: 5 * time.Minute,
 //	    Retries:     2, // Initial attempt + 2 retries = 3 total attempts
@@ -169,7 +169,7 @@ func NewClientPoolWithDialer(nctx context.Context, config ClientPoolConfig, dial
 	cpool := &ClientPool{pool: pool}
 	// Ensure at least one retry attempt beyond the initial try.
 	// The loop logic uses `range cp.retries`, so retries=1 means 2 total attempts.
-	cpool.retries = max(config.Retries, 0) + 1 // config.Retries=0 -> 1 attempt; config.Retries=1 -> 2 attempts etc.
+	cpool.retries = max(config.Retries, 1) + 1 // config.Retries=1 -> 2 attempt; config.Retries=2 -> 3 attempts etc.
 
 	// Setup idle connection cleanup if IdleTimeout is positive.
 	if config.IdleTimeout > 0 {
@@ -202,12 +202,12 @@ func NewClientPoolWithDialer(nctx context.Context, config ClientPoolConfig, dial
 }
 
 // Close gracefully shuts down the client pool.
-// It stops the idle connection cleanup timer, closes the underlying `puddle.Pool`,
-// which in turn closes all idle connections and waits for any acquired connections
+// It stops the idle connection cleanup timer, closes the underlying pool,
+// closes all idle connections, and waits for any acquired connections
 // to be released before closing them.
 //
 // After Close returns, the pool should not be used. Calling methods on a closed
-// pool will likely result in errors (e.g., `puddle.ErrClosedPool`).
+// pool will likely result in errors.
 // It is safe to call Close multiple times.
 func (cp *ClientPool) Close() {
 	cp.mu.Lock()
@@ -215,6 +215,7 @@ func (cp *ClientPool) Close() {
 		cp.mu.Unlock()
 		return // Already closed
 	}
+
 	cp.closed = true
 
 	// Stop the idle timer goroutine if it exists.
@@ -255,15 +256,15 @@ func releaseMaybeRetry(res *puddle.Resource[*Client], err error) (needsRetry boo
 		case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, net.ErrClosed), errors.Is(err, os.ErrClosed):
 			// These errors often indicate a broken connection; retrying with a new one might work.
 			return true
-		default:
-			// For other errors (e.g., application-level errors returned by the server,
-			// encoding/decoding errors not caught above), do not retry.
-			return false
 		}
+
+		// Return here so we dont release a destroyed
+		return false
 	}
 
 	// No error occurred, release the resource back to the pool for reuse.
 	res.Release()
+
 	return false // No retry needed
 }
 
@@ -275,7 +276,7 @@ func releaseMaybeRetry(res *puddle.Resource[*Client], err error) (needsRetry boo
 //
 // Example:
 //
-//	req := jsonrpc2.NewRequest(1, "myMethod", nil)
+//	req := jsonrpc2.NewRequest(int64(1), "myMethod")
 //	resp, err := pool.Call(context.Background(), req)
 //	if err != nil {
 //	    if errors.Is(err, jsonrpc2.ErrRetriesExceeded) {
@@ -374,6 +375,7 @@ func (cp *ClientPool) CallRaw(ctx context.Context, req RawRequest) (resp *Respon
 func (cp *ClientPool) CallWithTimeout(ctx context.Context, timeout time.Duration, r *Request) (*Response, error) {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
+
 	return cp.Call(tctx, r)
 }
 
@@ -382,6 +384,7 @@ func (cp *ClientPool) CallWithTimeout(ctx context.Context, timeout time.Duration
 func (cp *ClientPool) CallBatchWithTimeout(ctx context.Context, timeout time.Duration, r Batch[*Request]) (Batch[*Response], error) {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
+
 	return cp.CallBatch(tctx, r)
 }
 
@@ -390,6 +393,7 @@ func (cp *ClientPool) CallBatchWithTimeout(ctx context.Context, timeout time.Dur
 func (cp *ClientPool) CallRawWithTimeout(ctx context.Context, timeout time.Duration, r RawRequest) (*Response, error) {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
+
 	return cp.CallRaw(tctx, r)
 }
 
@@ -401,7 +405,7 @@ func (cp *ClientPool) CallRawWithTimeout(ctx context.Context, timeout time.Durat
 //
 // Example:
 //
-//	notif := jsonrpc2.NewNotification("logEvent", map[string]any{"level": "warn", "msg": "Disk space low"})
+//	notif := jsonrpc2.NewNotificationWithParams("logEvent", NewParamsObject(map[string]any{"level": "warn", "msg": "Disk space low"}))
 //	err := pool.Notify(context.Background(), notif)
 //	if err != nil {
 //	    log.Printf("Notify failed: %v", err)
@@ -491,6 +495,7 @@ func (cp *ClientPool) NotifyRaw(ctx context.Context, notify RawNotification) (er
 func (cp *ClientPool) NotifyWithTimeout(ctx context.Context, timeout time.Duration, n *Notification) error {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
+
 	return cp.Notify(tctx, n)
 }
 
@@ -499,6 +504,7 @@ func (cp *ClientPool) NotifyWithTimeout(ctx context.Context, timeout time.Durati
 func (cp *ClientPool) NotifyBatchWithTimeout(ctx context.Context, timeout time.Duration, n Batch[*Notification]) error {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
+
 	return cp.NotifyBatch(tctx, n)
 }
 
@@ -507,5 +513,6 @@ func (cp *ClientPool) NotifyBatchWithTimeout(ctx context.Context, timeout time.D
 func (cp *ClientPool) NotifyRawWithTimeout(ctx context.Context, timeout time.Duration, n RawNotification) error {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
+
 	return cp.NotifyRaw(tctx, n)
 }
