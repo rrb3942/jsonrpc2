@@ -11,7 +11,7 @@ import (
 // Dial establishes a JSON-RPC 2.0 client connection to the specified destination URI.
 // It returns a [*Client] ready for making RPC calls.
 //
-// The `destURI` format is `scheme:address` or `scheme://authority/path`.
+// The `destURI` format is `scheme:address` or an http/https URL.
 //
 // Supported Schemes:
 //   - `tcp`, `tcp4`, `tcp6`: Establishes a standard TCP connection. Address is `host:port`.
@@ -29,7 +29,7 @@ import (
 //   - `http://127.0.0.1:8080/rpc`
 //   - `https://api.example.com/jsonrpc`
 //   - `unix:///tmp/mysocket.sock`
-//   - `tls:secure.example.com:443`
+//   - `tls:127.0.0.1:9443`
 //
 // Returns [ErrUnknownScheme] if the scheme is not supported.
 // Other errors may be returned from underlying network or TLS dialers, or URL parsing.
@@ -91,6 +91,7 @@ func dialHTTP(ctx context.Context, uri string) (*Client, error) {
 func dialTLS(ctx context.Context, network, addr string) (*Client, error) {
 	// Determine the underlying TCP network based on the "tls" prefix variant.
 	tcpNetwork := "tcp" // Default for "tls"
+
 	switch {
 	case strings.HasSuffix(network, "6"): // "tls6"
 		tcpNetwork = "tcp6"
