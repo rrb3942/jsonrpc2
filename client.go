@@ -18,7 +18,7 @@ import (
 // single underlying transport managed by the associated [Encoder] and [Decoder].
 // For concurrent connections, consider using a [ClientPool].
 //
-// Use [NewClient] or [NewClientIO] to create instances.
+// Use [Dial], [NewClient], or [NewClientIO] to create instances.
 type Client struct {
 	e  Encoder
 	d  Decoder
@@ -44,8 +44,7 @@ func NewClientIO(rw io.ReadWriter) *Client {
 // concurrently with other operations.
 //
 // It is safe to call Close multiple times; subsequent calls after the first
-// will have no effect and return nil (unless the underlying closer returns an error
-// on subsequent calls, which is atypical).
+// will have no effect.
 //
 // After Close is called, the Client should no longer be used for making calls,
 // as the underlying transport will likely be closed. Errors from closing both
@@ -106,7 +105,7 @@ func (c *Client) call(ctx context.Context, rpc any, isNotify bool) (json.RawMess
 //
 //	client := jsonrpc2.NewClientIO(conn) // Assume conn is an established io.ReadWriter
 //	defer client.Close()
-//	req := jsonrpc2.NewRequest(1, "arith.add", []int{2, 3})
+//	req := jsonrpc2.NewRequestWithParams(1, "arith.add", NewParamsArray([]int{2, 3}))
 //	resp, err := client.Call(context.Background(), req)
 //	if err != nil {
 //	    log.Fatalf("Call failed: %v", err)
@@ -145,8 +144,8 @@ func (c *Client) Call(ctx context.Context, r *Request) (*Response, error) {
 //
 // Example:
 //
-//	req1 := jsonrpc2.NewRequest(1, "method1", nil)
-//	req2 := jsonrpc2.NewRequest(2, "method2", nil)
+//	req1 := jsonrpc2.NewRequest(int64(1), "method1")
+//	req2 := jsonrpc2.NewRequest(int64(2), "method2")
 //	batchReq := jsonrpc2.NewBatch[*jsonrpc2.Request](0)
 //	batchReq.Add(req1, req2)
 //
@@ -249,7 +248,7 @@ func (c *Client) CallRawWithTimeout(ctx context.Context, timeout time.Duration, 
 //
 // Example:
 //
-//	notif := jsonrpc2.NewNotification("logEvent", map[string]string{"level": "info", "message": "User logged in"})
+//	notif := jsonrpc2.NewNotificationWithParams("logEvent", NewParamsObject(map[string]string{"level": "info", "message": "User logged in"}))
 //	err := client.Notify(context.Background(), notif)
 //	if err != nil {
 //	    log.Printf("Notify failed: %v", err) // Log error, but don't expect a response error
