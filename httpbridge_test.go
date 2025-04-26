@@ -115,11 +115,11 @@ func TestHTTPBridge_Decode_NoJSON(t *testing.T) {
 	err := bridge.Encode(ctx, reqPayload)
 	require.NoError(t, err)
 
-	// Decode should fail with ErrHTTPNoJSON
+	// Decode should fail with ErrHTTPNotJSON
 	var decodedResp Response
 	err = bridge.Decode(ctx, &decodedResp)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrHTTPNoJSON)
+	assert.ErrorIs(t, err, ErrHTTPNotJSON)
 	assert.Contains(t, err.Error(), "200 OK")
 }
 
