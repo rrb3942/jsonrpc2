@@ -28,7 +28,9 @@ const (
 	CtxFromAddr
 	// CtxRPCServer is the context key for the parent [*RPCServer] handling the current request or connection.
 	CtxRPCServer
+)
 
+const (
 	// DefaultHTTPReadTimeout specifies the default [http.Server.ReadHeaderTimeout] (5 seconds).
 	DefaultHTTPReadTimeout = 5
 	// DefaultHTTPShutdownTimeout specifies the default graceful shutdown timeout (30 seconds) for the HTTP server.
@@ -104,7 +106,7 @@ type Server struct {
 //	// server.HTTPShutdownTimeout = 60 * time.Second
 //	// server.PacketRoutines = 8
 //	// server.Binder = myCustomBinder
-//	err := server.ListenAndServe(context.Background(), "tcp://:9090")
+//	err := server.ListenAndServe(context.Background(), "tcp::9090")
 //	// ... handle error ...
 func NewServer(handler Handler) *Server {
 	var server Server
@@ -129,15 +131,17 @@ func NewServer(handler Handler) *Server {
 // It blocks until the provided context is cancelled or an unrecoverable error occurs.
 //
 // Supported URI schemes:
-//   - tcp, tcp4, tcp6: Listens on a TCP address (e.g., "tcp://127.0.0.1:9090", "tcp://:9090"). Delegates to [Server.Serve].
+//   - tcp, tcp4, tcp6: Listens on a TCP address (e.g., "tcp:127.0.0.1:9090", "tcp::9090"). Delegates to [Server.Serve].
 //   - unix: Listens on a Unix domain socket (e.g., "unix:///tmp/mysocket.sock"). Delegates to [Server.Serve].
-//   - udp, udp4, udp6: Listens on a UDP address (e.g., "udp://:9091"). Delegates to [Server.ServePacket].
+//   - udp, udp4, udp6: Listens on a UDP address (e.g., "udp::9091"). Delegates to [Server.ServePacket].
 //   - unixgram: Listens on a Unix domain datagram socket (e.g., "unixgram:///tmp/mydgram.sock"). Delegates to [Server.ServePacket].
 //   - http: Starts an HTTP server (e.g., "http://localhost:8080/rpc"). The path component (/rpc) is used for the handler. Delegates to internal listenAndServeHTTP.
 //
 // The server gracefully shuts down when the context is cancelled. For HTTP servers,
 // shutdown respects the [Server.HTTPShutdownTimeout]. For other listeners, cancellation
 // closes the listener, allowing active connections/goroutines to finish processing.
+//
+// It is safe to call ListenAndServe multiple times concurrently with non-conflicting listening URIs.
 //
 // Example:
 //
@@ -148,14 +152,20 @@ func NewServer(handler Handler) *Server {
 //	// ... register methods ...
 //	server := jsonrpc2.NewServer(mux)
 //
+//	var wg sync.WaitGroup
+//
+//	wg.Add(1)
 //	go func() {
+//	    defer wg.Done()
 //	    log.Println("Starting TCP server on :9090")
-//	    if err := server.ListenAndServe(ctx, "tcp://:9090"); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
+//	    if err := server.ListenAndServe(ctx, "tcp::9090"); err != nil && !errors.Is(err, net.ErrClosed) {
 //	        log.Printf("TCP server error: %v", err)
 //	    }
 //	}()
 //
+//	wg.Add(1)
 //	go func() {
+//	    defer wg.Done()
 //	    log.Println("Starting HTTP server on :8080/rpc")
 //	    if err := server.ListenAndServe(ctx, "http://:8080/rpc"); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
 //	        log.Printf("HTTP server error: %v", err)
@@ -168,8 +178,8 @@ func NewServer(handler Handler) *Server {
 //	<-sigChan
 //	log.Println("Shutting down servers...")
 //	cancel()
-//	// Give some time for graceful shutdown (optional)
-//	time.Sleep(2 * time.Second)
+//	// Wait for servers to stop
+//	wg.Wait()
 func (s *Server) ListenAndServe(ctx context.Context, listenURI string) error {
 	uri, err := url.Parse(listenURI)
 
@@ -333,7 +343,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 // configured with the Server's packet-based [NewPacketDecoderFunc] and [NewPacketEncoderFunc].
 // The underlying [net.PacketConn] is added to the context via the [CtxNetPacketConn] key.
 // The sender's address for each packet is typically added to the request context
-// by the [PacketDecoder] implementation (e.g., using [CtxFromAddr]).
+// using the [CtxFromAddr] key.
 //
 // If a [Binder] is configured on the Server, it is called for each spawned RPCServer instance.
 //
