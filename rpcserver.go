@@ -15,23 +15,65 @@ var (
 	errJSONType = &json.UnmarshalTypeError{}
 )
 
-// RPCServer represents a single jsonrpc2 server that handles rpc requests and notifications.
+// RPCServer represents a single JSON-RPC 2.0 server instance that handles requests
+// and notifications over a specific transport (like a single network connection or
+// packet stream). It reads requests using an internal decoder (wrapping [Decoder] or
+// [PacketDecoder]), processes them using the configured [Handler], and writes
+// responses using an internal encoder (wrapping [Encoder] or [PacketEncoder]).
 //
-// All requests handled by the RPCServer will have the context key [CtxRPCServer] so to the current [*RPCServer].
+// Instances are typically created by a [Server] for each incoming connection or
+// managed manually for specific use cases. Use constructor functions like
+// [NewStreamServer] or [NewPacketServer] to create instances.
+//
+// # Configuration
+//
+// After creating an RPCServer using a constructor, you can customize its behavior:
+//   - Callbacks: Set fields in the [Callbacks] struct to handle events like decoding
+//     errors, encoding errors, or panics within handlers. A default panic handler is provided.
+//   - Handler: The core logic that processes RPC methods. This is mandatory and
+//     usually provided during construction. See [Handler].
+//   - SerialBatch: If true, processes requests within a single JSON-RPC batch sequentially
+//     in the order received. If false (default), processes them concurrently using goroutines.
+//   - NoRoutines: If true, processes each incoming request or batch synchronously within
+//     the main [RPCServer.Run] loop. If false (default), spawns a new goroutine for each
+//     request or batch (unless SerialBatch is true for batches).
+//   - WaitOnClose: If true, when [RPCServer.Run] is shutting down (due to context
+//     cancellation or connection error), it waits for all active request-handling
+//     goroutines to complete before returning. If false (default), it cancels the
+//     internal context immediately and then waits.
+//
+// # Context Values
+//
+// Within the [Handler.Handle] method, the context will contain:
+//   - [CtxRPCServer]: The [*RPCServer] instance handling the request.
+//   - [CtxFromAddr]: For packet-based servers ([NewPacketServer]), the sender's [net.Addr].
+//   - Other values from the parent context passed to [RPCServer.Run] or added by a [Binder].
 type RPCServer struct {
+	// Callbacks provides hooks for customizing server behavior on events like errors or panics.
+	// See the [Callbacks] type documentation for details on available hooks.
 	Callbacks Callbacks
-	decoder   PacketDecoder
-	Handler   Handler
-	encoder   PacketEncoder
-	// Run batches in serial without go-routine fan out
+	decoder   PacketDecoder // Internal decoder (stream or packet).
+	// Handler is the core logic implementation for processing JSON-RPC requests.
+	// This field is mandatory and must be non-nil.
+	Handler Handler
+	encoder PacketEncoder // Internal encoder (stream or packet).
+	// SerialBatch controls whether requests within a JSON-RPC batch array ([])
+	// are processed sequentially (true) or concurrently using goroutines (false).
+	// Default is false (concurrent). This setting has no effect if NoRoutines is true.
 	SerialBatch bool
-	// Don't run requests in a separate go-routine
+	// NoRoutines controls whether each incoming request or batch is processed
+	// synchronously within the main server loop (true) or in its own goroutine (false).
+	// Default is false (use goroutines). If true, SerialBatch is implicitly true.
 	NoRoutines bool
-	// Wait for any pending requests instead of immediately signaling for a cancel
-	// when the Run() is about to return
+	// WaitOnClose determines the shutdown behavior when Run exits.
+	// If true, Run waits for all active request goroutines to complete before returning.
+	// If false (default), it signals cancellation to active handlers immediately
+	// via the context passed to Handle, and then waits.
 	WaitOnClose bool
 }
 
+// newRPCServer is an internal helper to create RPCServer instances,
+// handling the wrapping of stream/packet encoders/decoders.
 func newRPCServer(d, e any, handler Handler) *RPCServer {
 	var dec PacketDecoder
 
@@ -57,34 +99,93 @@ func newRPCServer(d, e any, handler Handler) *RPCServer {
 	return rp
 }
 
-// NewStreamServer returns a new [*RPCServer] with a [Handler] of handle.
+// NewStreamServer creates a new [*RPCServer] configured to operate over a
+// stream-oriented transport (like TCP or Unix sockets) using the provided
+// [Decoder] and [Encoder]. The handler is used to process incoming requests.
 //
-// It operates over streaming streaming connections.
+// Example:
+//
+//	conn, err := net.Dial("tcp", "localhost:9090")
+//	// ... handle error ...
+//	defer conn.Close()
+//
+//	mux := jsonrpc2.NewMethodMux()
+//	// ... register methods on mux ...
+//
+//	server := jsonrpc2.NewStreamServer(jsonrpc2.NewDecoder(conn), jsonrpc2.NewEncoder(conn), mux)
+//	// server.NoRoutines = true // Optional configuration
+//
+//	// Run the server (typically managed by a jsonrpc2.Server)
+//	// err = server.Run(context.Background())
+//	// ... handle error ...
 func NewStreamServer(d Decoder, e Encoder, handler Handler) *RPCServer {
 	return newRPCServer(d, e, handler)
 }
 
-// NewStreamServerFromIO returns a new [*RPCServer] with a [Handler] of handle.
+// NewStreamServerFromIO creates a new [*RPCServer] configured for stream-oriented
+// transports, using the provided [io.ReadWriter] (like a [net.Conn]).
+// It automatically wraps rw with the default stream [NewDecoder] and [NewEncoder].
 //
-// rw will be wrapped with default encoders and decoders as returned by [NewDecoder] and [NewEncoder].
+// Example:
+//
+//	conn, err := net.Dial("tcp", "localhost:9090")
+//	// ... handle error ...
+//	defer conn.Close()
+//
+//	mux := jsonrpc2.NewMethodMux()
+//	// ... register methods on mux ...
+//
+//	server := jsonrpc2.NewStreamServerFromIO(conn, mux)
+//	// Run the server...
 func NewStreamServerFromIO(rw io.ReadWriter, handler Handler) *RPCServer {
 	return NewStreamServer(NewDecoder(rw), NewEncoder(rw), handler)
 }
 
-// NewPacketServer returns a new [*RPCServer] with a [Handler] of handle.
+// NewPacketServer creates a new [*RPCServer] configured to operate over a
+// packet-oriented transport (like UDP or Unix datagram sockets) using the provided
+// [PacketDecoder] and [PacketEncoder]. The handler processes incoming requests.
 //
-// It operates over connectionless packet sockets.
+// Example:
+//
+//	conn, err := net.ListenPacket("udp", ":9091")
+//	// ... handle error ...
+//	defer conn.Close()
+//
+//	mux := jsonrpc2.NewMethodMux()
+//	// ... register methods on mux ...
+//
+//	decoder := jsonrpc2.NewPacketDecoder(conn)
+//	encoder := jsonrpc2.NewPacketEncoder(conn)
+//	server := jsonrpc2.NewPacketServer(decoder, encoder, mux)
+//	// server.PacketRoutines = 4 // Optional: Usually set on jsonrpc2.Server
+//	// Run the server...
 func NewPacketServer(d PacketDecoder, e PacketEncoder, handler Handler) *RPCServer {
 	return newRPCServer(d, e, handler)
 }
 
-// NewRPCServer returns a new [*RPCServer] with a [Handler] of handle.
+// NewRPCServerFromPacket creates a new [*RPCServer] configured for packet-oriented
+// transports, using the provided [net.PacketConn].
+// It automatically wraps rw with the default [NewPacketDecoder] and [NewPacketEncoder].
 //
-// rw will be wrapped with default encoders and decoders as returned by [NewPacketDecoder] and [NewPacketEncoder].
+// Example:
+//
+//	conn, err := net.ListenPacket("udp", ":9091")
+//	// ... handle error ...
+//	defer conn.Close()
+//
+//	mux := jsonrpc2.NewMethodMux()
+//	// ... register methods on mux ...
+//
+//	server := jsonrpc2.NewRPCServerFromPacket(conn, mux)
+//	// Run the server...
 func NewRPCServerFromPacket(rw net.PacketConn, handler Handler) *RPCServer {
 	return NewPacketServer(NewPacketDecoder(rw), NewPacketEncoder(rw), handler)
 }
 
+// handleRequest processes a single raw JSON-RPC request message.
+// It unmarshals the request, calls the handler, and prepares the response object.
+// It handles panics from the handler and converts errors/results into Response objects.
+// Returns nil for notifications.
 func (rp *RPCServer) handleRequest(ctx context.Context, rpc json.RawMessage) (res any) {
 	var req Request
 
@@ -130,6 +231,8 @@ func (rp *RPCServer) handleRequest(ctx context.Context, rpc json.RawMessage) (re
 	return req.ResponseWithResult(result)
 }
 
+// runRequest handles a single JSON object request.
+// It calls handleRequest and sends the response if one is generated.
 func (rp *RPCServer) runRequest(ctx context.Context, r json.RawMessage, from net.Addr) {
 	if resp := rp.handleRequest(ctx, r); resp != nil {
 		if err := rp.encoder.EncodeTo(ctx, resp, from); err != nil {
@@ -138,9 +241,12 @@ func (rp *RPCServer) runRequest(ctx context.Context, r json.RawMessage, from net
 	}
 }
 
+// runRequests handles a JSON array (batch) of requests.
+// It unmarshals the array, then processes each request either serially or concurrently
+// based on the SerialBatch and NoRoutines settings. Finally, it sends back any
+// generated responses as a JSON array.
 func (rp *RPCServer) runRequests(ctx context.Context, raw json.RawMessage, from net.Addr) {
 	var objs []json.RawMessage
-
 	var resps []any
 
 	// Split into individual objects
@@ -204,8 +310,14 @@ func (rp *RPCServer) runRequests(ctx context.Context, raw json.RawMessage, from 
 	}
 }
 
+// run determines if the incoming message is a single request or a batch
+// and dispatches it to runRequest or runRequests accordingly.
+// It adds CtxFromAddr to the context.
 func (rp *RPCServer) run(ctx context.Context, buf json.RawMessage, from net.Addr) {
-	ctx = context.WithValue(ctx, CtxFromAddr, from)
+	// Add sender address to context if available (primarily for packet servers).
+	if from != nil {
+		ctx = context.WithValue(ctx, CtxFromAddr, from)
+	}
 
 	switch jsonHintType(buf) {
 	case TypeArray:
@@ -213,93 +325,145 @@ func (rp *RPCServer) run(ctx context.Context, buf json.RawMessage, from net.Addr
 	case TypeObject:
 		rp.runRequest(ctx, buf, from)
 	default:
-		_ = rp.encoder.EncodeTo(ctx, &Response{ID: NewNullID(), Error: ErrParseError}, from)
+		// Invalid JSON structure (neither object nor array).
+		// Send a Parse Error response.
+		resp := NewResponseError(ErrParseError)
+		if err := rp.encoder.EncodeTo(ctx, resp, from); err != nil {
+			rp.Callbacks.runOnEncodingError(ctx, resp, err)
+		}
+		// Also notify via callback if configured.
+		rp.Callbacks.runOnDecodingError(ctx, buf, ErrParseError)
 	}
 }
 
+// Close attempts to close the underlying decoder and encoder if they implement [io.Closer].
+// This is typically used to release resources like network connections or files
+// associated with the transport. Errors from closing both are joined together.
 func (rp *RPCServer) Close() error {
 	var err error
 
+	// Close decoder if possible.
 	if dc, ok := rp.decoder.(io.Closer); ok {
 		err = dc.Close()
 	}
 
+	// Close encoder if possible, joining errors.
+
 	if ec, ok := rp.encoder.(io.Closer); ok {
-		return errors.Join(err, ec.Close())
+		err = errors.Join(err, ec.Close())
 	}
 
 	return err
 }
 
-// Run runs the server until ctx is cancelled or the connection is broken.
+// Run starts the main loop of the RPC server. It continuously reads messages
+// from the decoder, processes them, and sends responses via the encoder.
+//
+// It blocks until the provided context `ctx` is cancelled, an unrecoverable error
+// occurs during decoding (like [io.EOF] or a connection error), or a fatal
+// JSON syntax error is encountered on a stream-based transport.
+//
+// For each valid incoming JSON message (object or array), it calls the internal
+// `run` method. Depending on the `NoRoutines` setting, `run` might be executed
+// synchronously or in a new goroutine.
+//
+// Error Handling:
+//   - [io.EOF] or context cancellation errors generally indicate a clean shutdown
+//     and are returned after cleanup.
+//   - JSON syntax errors ([json.SyntaxError]): A JSON-RPC Parse Error response is sent.
+//     For stream-based decoders, Run returns immediately as the stream state is uncertain.
+//     For packet-based decoders, Run continues processing subsequent packets.
+//   - JSON type errors ([json.UnmarshalTypeError]): A JSON-RPC Invalid Request error
+//     response is sent. Run continues processing as the stream/packet state is likely recoverable.
+//   - Other decoding errors: Run returns the error.
+//
+// Shutdown:
+// When Run exits, it performs cleanup:
+// 1. Waits for active goroutines according to `WaitOnClose`.
+// 2. Cancels the internal server context (`sctx`).
+// 3. Calls [RPCServer.Close] to close the underlying encoder/decoder if possible.
+// 4. Calls the [Callbacks.OnExit] callback.
+// 5. Returns any error encountered during shutdown or the initial error causing exit, joined together.
 func (rp *RPCServer) Run(ctx context.Context) (err error) {
 	var wg sync.WaitGroup
 
+	// Create an internal context derived from the input context.
+	// Add the RPCServer instance to this context.
 	sctx, stop := context.WithCancel(context.WithValue(ctx, CtxRPCServer, rp))
 
+	// Defer cleanup actions.
 	defer func() {
+		// Manage shutdown sequence based on WaitOnClose.
 		if rp.WaitOnClose {
-			wg.Wait()
-			stop()
+			wg.Wait() // Wait for handlers first.
+			stop()     // Then cancel context.
 		} else {
-			stop()
-			wg.Wait()
+			stop()     // Cancel context first.
+			wg.Wait() // Then wait for handlers.
 		}
 
+		// Join potential errors: initial error, context error, close error.
+		// Note: ctx.Err() might be nil if Run exited due to non-context error.
 		err = errors.Join(err, ctx.Err(), rp.Close())
 
-		rp.Callbacks.runOnExit(ctx, err)
+		// Call the OnExit callback.
+		rp.Callbacks.runOnExit(ctx, err) // Pass original context.
 	}()
 
+	// Main loop: Read and process messages.
 	for {
 		var from net.Addr
-
 		var buf json.RawMessage
 
+		// Decode the next message. DecodeFrom handles context cancellation/timeouts internally.
 		from, err = rp.decoder.DecodeFrom(sctx, &buf)
 
 		if err != nil {
+			// Handle specific JSON parsing errors.
 			if errors.As(err, &errSyntax) {
-				_ = rp.encoder.EncodeTo(ctx, NewResponseError(ErrParseError.WithData(err.Error())), from)
-				rp.Callbacks.runOnDecodingError(ctx, nil, err)
+				// Send Parse Error response.
+				resp := NewResponseError(ErrParseError.WithData(err.Error()))
+				_ = rp.encoder.EncodeTo(sctx, resp, from) // Use sctx for encoding attempt.
+				rp.Callbacks.runOnDecodingError(sctx, buf, err)
 
-				// For stream decoders we need to close the connection as the buffer is all fubar
+				// For stream decoders, a syntax error corrupts the stream, so we must exit.
 				if _, ok := rp.decoder.(*decoderShim); ok {
-					return
+					return // Return the syntax error.
 				}
-
-				// Packet decoders are OK to continue
-				err = nil
-
+				// For packet decoders, we can potentially recover and process the next packet.
+				err = nil // Clear error to continue loop.
 				continue
 			}
 
 			if errors.As(err, &errJSONType) {
-				// Decode buffer should still be fine here, no need to drop connection on streams
-				_ = rp.encoder.EncodeTo(ctx, NewResponseError(ErrInvalidRequest.WithData(err.Error())), from)
-				rp.Callbacks.runOnDecodingError(ctx, nil, err)
+				// Send Invalid Request error response.
+				resp := NewResponseError(ErrInvalidRequest.WithData(err.Error()))
+				_ = rp.encoder.EncodeTo(sctx, resp, from)
+				rp.Callbacks.runOnDecodingError(sctx, buf, err)
 
-				err = nil
-
+				// Type errors usually don't corrupt the stream/packet flow, so continue.
+				err = nil // Clear error to continue loop.
 				continue
 			}
 
-			return
+			// For other errors (EOF, context cancelled, connection closed, etc.), exit the loop.
+			return // Return the error that caused the exit.
 		}
 
+		// Ignore empty messages (might happen with certain decoders/transports).
 		if len(buf) == 0 {
 			continue
 		}
 
+		// Process the message, either synchronously or in a goroutine.
 		if rp.NoRoutines {
-			rp.run(ctx, buf, from)
+			rp.run(sctx, buf, from) // Run synchronously in the loop.
 		} else {
 			wg.Add(1)
-
-			go func() {
+			go func(gctx context.Context, gbuf json.RawMessage, gfrom net.Addr) {
 				defer wg.Done()
-				rp.run(sctx, buf, from)
-			}()
+				rp.run(gctx, gbuf, gfrom) // Run in a goroutine with the server context.
+			}(sctx, buf, from)
 		}
 	}
 }
