@@ -2,9 +2,37 @@ package jsonrpc2
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"sync/atomic"
 	"time"
 )
+
+// ErrInvalidParamsType indicates that the provided params argument to BasicClient.Call or BasicClient.Notify
+// did not marshal into a JSON object or array as required by the JSON-RPC 2.0 specification.
+var ErrInvalidParamsType = errors.New("jsonrpc2: params must marshal to a JSON object or array")
+
+// makeParamsFromAny marshals the given value and validates that it represents
+// a JSON object or array, returning a Params struct or an error.
+// If v is nil, it returns empty Params and no error.
+func makeParamsFromAny(v any) (Params, error) {
+	if v == nil {
+		return Params{}, nil // Omitting params is allowed
+	}
+
+	raw, err := Marshal(v)
+	if err != nil {
+		return Params{}, fmt.Errorf("jsonrpc2: failed to marshal params: %w", err)
+	}
+
+	hint := jsonHintType(raw)
+	if hint != TypeObject && hint != TypeArray {
+		return Params{}, fmt.Errorf("%w: got %T", ErrInvalidParamsType, v)
+	}
+
+	return NewParams(json.RawMessage(raw)), nil
+}
 
 // BasicClient provides a simplified interface for making JSON-RPC 2.0 calls
 // to a server. It wraps a [ClientPool] (configured with MaxSize=1) to manage
@@ -40,9 +68,18 @@ func (c *BasicClient) Close() {
 // Call sends a JSON-RPC request for the given method with the provided parameters.
 // It automatically assigns a request ID and waits for the server's response.
 // If a default timeout is set via SetDefaultTimeout, it will be applied to the call.
+// The `params` argument can be any Go type that marshals to a JSON object or array,
+// or nil to omit parameters. If `params` marshals to anything else, an error
+// wrapping [ErrInvalidParamsType] is returned.
 // Returns the server's [*Response] or an error if the call fails (including potential
 // retries managed by the underlying pool).
-func (c *BasicClient) Call(ctx context.Context, method string, params Params) (*Response, error) {
+func (c *BasicClient) Call(ctx context.Context, method string, params any) (*Response, error) {
+	// Validate and convert params
+	reqParams, err := makeParamsFromAny(params)
+	if err != nil {
+		return nil, err
+	}
+
 	// Atomically increment and get the next ID.
 	// Note: While the pool handles concurrency, atomic ID ensures uniqueness
 	// if multiple goroutines use the *same* BasicClient instance, matching original intent.
@@ -50,7 +87,7 @@ func (c *BasicClient) Call(ctx context.Context, method string, params Params) (*
 	// For now, keep it for behavioral consistency.
 	// TODO: Re-evaluate atomic ID necessity with pool size 1.
 	nextID := c.id.Add(1) // Use Add method of atomic.Uint32
-	req := NewRequestWithParams(int64(nextID), method, params)
+	req := NewRequestWithParams(int64(nextID), method, reqParams)
 
 	// Call the appropriate pool method based on whether a default timeout is set.
 	if c.defaultTimeout > 0 {
@@ -62,9 +99,18 @@ func (c *BasicClient) Call(ctx context.Context, method string, params Params) (*
 // Notify sends a JSON-RPC notification for the given method with the provided parameters.
 // It does not wait for a server response.
 // If a default timeout is set via SetDefaultTimeout, it will be applied to the notification attempt.
+// The `params` argument can be any Go type that marshals to a JSON object or array,
+// or nil to omit parameters. If `params` marshals to anything else, an error
+// wrapping [ErrInvalidParamsType] is returned.
 // Returns an error only if sending the notification fails (including potential retries).
-func (c *BasicClient) Notify(ctx context.Context, method string, params Params) error {
-	notif := NewNotificationWithParams(method, params)
+func (c *BasicClient) Notify(ctx context.Context, method string, params any) error {
+	// Validate and convert params
+	notifyParams, err := makeParamsFromAny(params)
+	if err != nil {
+		return err
+	}
+
+	notif := NewNotificationWithParams(method, notifyParams)
 
 	// Call the appropriate pool method based on whether a default timeout is set.
 	if c.defaultTimeout > 0 {
