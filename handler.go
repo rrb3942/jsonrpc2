@@ -79,7 +79,7 @@ func (fh *funcHandler) Handle(ctx context.Context, req *Request) (any, error) {
 // concurrently. Use [NewMethodMux] to create instances.
 type MethodMux struct {
 	// defaultHandler stores the Handler to use when no specific method match is found.
-	defaultHandler atomic.Value // Stores Handler interface type
+	defaultHandler atomic.Pointer[Handler] // Stores Handler interface type
 	// mux stores the mapping from method names (string) to Handlers.
 	mux sync.Map // map[string]Handler
 }
@@ -201,10 +201,9 @@ func (mm *MethodMux) Delete(method string) {
 //	// mux.SetDefault(nil)
 func (mm *MethodMux) SetDefault(handler Handler) {
 	if handler == nil {
-		// Use Delete to clear the value, ensuring Load returns nil, false later.
-		mm.defaultHandler.Delete()
+		mm.defaultHandler.Store(nil)
 	} else {
-		mm.defaultHandler.Store(handler)
+		mm.defaultHandler.Store(&handler)
 	}
 }
 
@@ -241,15 +240,16 @@ func (mm *MethodMux) Handle(ctx context.Context, req *Request) (any, error) {
 	if ok {
 		// Specific handler found, delegate to it.
 		// Type assertion is safe due to how handlers are stored.
+		//nolint:errcheck //Internally managed, can only be a handler
 		return value.(Handler).Handle(ctx, req)
 	}
 
 	// No specific handler found, try loading the default handler.
-	defaultValue := mm.defaultHandler.Load()
-	if defaultValue != nil {
+	defaultHandler := mm.defaultHandler.Load()
+	if defaultHandler != nil {
 		// Default handler exists, delegate to it.
 		// Type assertion is safe due to how the default handler is stored.
-		return defaultValue.(Handler).Handle(ctx, req)
+		return (*defaultHandler).Handle(ctx, req)
 	}
 
 	// No specific handler and no default handler found.
