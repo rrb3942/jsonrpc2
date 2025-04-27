@@ -134,11 +134,8 @@ func (c *Client) NewRequestBatch(size int) *BatchBuilder[*Request] {
 // Notifications added via [*BatchBuilder.Add] will not have IDs.
 // The `size` parameter provides a hint for the initial capacity of the underlying batch slice.
 // The batch is sent using [*BatchBuilder.Call].
-// Note: The return type should ideally be *BatchBuilder[*Notification].
-func (c *Client) NewNotificationBatch(size int) *BatchBuilder[*Request] { // TODO: Fix return type to *BatchBuilder[*Notification]
-	// TODO: Fix implementation to return correct type:
-	// return &BatchBuilder[*Notification]{parent: c, Batch: NewBatch[*Notification](size)}
-	return &BatchBuilder[*Request]{parent: c, Batch: NewBatch[*Request](size)}
+func (c *Client) NewNotificationBatch(size int) *BatchBuilder[*Notification] {
+	return &BatchBuilder[*Notification]{parent: c, Batch: NewBatch[*Notification](size)}
 }
 
 // callBatch is an internal helper used by BatchBuilder to send request batches via the client's pool.
