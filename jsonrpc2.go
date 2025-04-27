@@ -80,9 +80,9 @@
 //		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 //		defer cancel()
 //
-//		// DialBasic establishes the connection and creates a basic client.
-//		// It uses a ClientPool internally with MaxSize=1.
-//		client, err := jsonrpc2.DialBasic(ctx, "tcp:localhost:9090")
+//		// Dial establishes the connection and creates a client.
+//		// It uses a ClientPool internally.
+//		client, err := jsonrpc2.Dial(ctx, "tcp:localhost:9090")
 //		if err != nil {
 //			log.Fatalf("Failed to dial server: %v", err)
 //		}

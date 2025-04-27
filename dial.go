@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/url"
 	"strings"
-	"time" // Added for example in DialWithConfig docs
 )
 
 // Dial establishes a JSON-RPC 2.0 client connection to the specified destination URI.
@@ -153,10 +152,6 @@ func Dial(ctx context.Context, destURI string) (*Client, error) {
 // It's similar to [Dial] but allows customization of the underlying connection
 // pool's behavior (e.g., timeouts, size, retries, AcquireOnCreate) via the `config` parameter.
 // The `URI` field within the provided `config` specifies the destination address.
-//
-// Unlike [Dial], this function respects the `AcquireOnCreate` setting within the
-// provided `config`. If true, the connection is validated immediately. If false,
-// connection attempts are deferred until the first RPC call.
 //
 // See [DialTransport] for details on supported URI schemes specified in `config.URI`.
 //

@@ -22,7 +22,7 @@ This library facilitates communication between clients and servers using JSON-RP
 *   **Concurrency Control**: Configure server-side concurrency using `RPCServer` options (`NoRoutines`, `SerialBatch`).
 *   **Context Propagation**: Leverages Go's `context` package for cancellation and passing request-scoped values (`CtxHTTPRequest`, `CtxNetConn`, etc.).
 *   **Client Pooling**: Built-in connection pooling (`ClientPool`) for managing client connections efficiently.
-*   **Simplified Client**: `BasicClient` provides a straightforward interface for simple request/response scenarios.
+*   **Simplified Client**: `Client` provides a straightforward interface for simple request/response scenarios.
 
 ## Basic Usage
 
@@ -90,9 +90,9 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// DialBasic establishes the connection and creates a basic client.
-	// It uses a ClientPool internally with MaxSize=1.
-	client, err := jsonrpc2.DialBasic(ctx, "tcp:localhost:9090")
+	// Dial establishes the connection and creates a basic client.
+	// It uses a ClientPool internally.
+	client, err := jsonrpc2.Dial(ctx, "tcp:localhost:9090")
 	if err != nil {
 		log.Fatalf("Failed to dial server: %v", err)
 	}
