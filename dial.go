@@ -151,7 +151,9 @@ func DialBasic(ctx context.Context, destURI string) (*BasicClient, error) {
 	}
 
 	// Wrap the pool in a BasicClient.
-	// Initialize the ID randomly.
+	bc := &BasicClient{pool: pool}
+	// Initialize the atomic ID with a random starting value.
 	//nolint:gosec // We just want to avoid always starting at 0
-	return &BasicClient{pool: pool, id: rand.Uint32()}, nil
+	bc.id.Store(rand.Uint32())
+	return bc, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"math/rand/v2"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,7 +20,7 @@ import (
 // BasicClient is goroutine-safe.
 type BasicClient struct {
 	pool           *ClientPool
-	id             uint32
+	id             atomic.Uint32 // Use atomic type for thread-safe ID generation.
 	defaultTimeout time.Duration
 }
 
@@ -57,7 +58,7 @@ func (c *BasicClient) Call(ctx context.Context, method string, params Params) (*
 	// However, with pool size 1, this is less critical. Consider removing if simplifying further.
 	// For now, keep it for behavioral consistency.
 	// TODO: Re-evaluate atomic ID necessity with pool size 1.
-	nextID := atomic.AddUint32(&c.id, 1)
+	nextID := c.id.Add(1) // Use Add method of atomic.Uint32
 
 	req := NewRequestWithParams(int64(nextID), method, params)
 	return c.pool.Call(ctx, req)
