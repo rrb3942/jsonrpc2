@@ -43,13 +43,6 @@ func (c *BasicClient) Close() {
 // Returns the server's [*Response] or an error if the call fails (including potential
 // retries managed by the underlying pool).
 func (c *BasicClient) Call(ctx context.Context, method string, params Params) (*Response, error) {
-	// Apply default timeout if set
-	if c.defaultTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.defaultTimeout)
-		defer cancel()
-	}
-
 	// Atomically increment and get the next ID.
 	// Note: While the pool handles concurrency, atomic ID ensures uniqueness
 	// if multiple goroutines use the *same* BasicClient instance, matching original intent.
@@ -57,8 +50,12 @@ func (c *BasicClient) Call(ctx context.Context, method string, params Params) (*
 	// For now, keep it for behavioral consistency.
 	// TODO: Re-evaluate atomic ID necessity with pool size 1.
 	nextID := c.id.Add(1) // Use Add method of atomic.Uint32
-
 	req := NewRequestWithParams(int64(nextID), method, params)
+
+	// Call the appropriate pool method based on whether a default timeout is set.
+	if c.defaultTimeout > 0 {
+		return c.pool.CallWithTimeout(ctx, c.defaultTimeout, req)
+	}
 	return c.pool.Call(ctx, req)
 }
 
@@ -67,13 +64,11 @@ func (c *BasicClient) Call(ctx context.Context, method string, params Params) (*
 // If a default timeout is set via SetDefaultTimeout, it will be applied to the notification attempt.
 // Returns an error only if sending the notification fails (including potential retries).
 func (c *BasicClient) Notify(ctx context.Context, method string, params Params) error {
-	// Apply default timeout if set
-	if c.defaultTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.defaultTimeout)
-		defer cancel()
-	}
-
 	notif := NewNotificationWithParams(method, params)
+
+	// Call the appropriate pool method based on whether a default timeout is set.
+	if c.defaultTimeout > 0 {
+		return c.pool.NotifyWithTimeout(ctx, c.defaultTimeout, notif)
+	}
 	return c.pool.Notify(ctx, notif)
 }
