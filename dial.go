@@ -25,7 +25,7 @@ import (
 //
 // Examples:
 //   - `tcp:127.0.0.1:9090`
-//   - `tcp://localhost:9090`
+//   - `tcp:localhost:9090`
 //   - `udp::9090` (UDP to port 9090 on all interfaces)
 //   - `http://127.0.0.1:8080/rpc`
 //   - `https://api.example.com/jsonrpc`

@@ -22,12 +22,13 @@
 //
 // # Basic Usage
 //
-// ## Server (TCP)
+// # Server (TCP Example)
 //
 //	package main
 //
 //	import (
 //		"context"
+//		"errors"
 //		"log"
 //		"net"
 //		"os"
@@ -56,13 +57,14 @@
 //		log.Println("JSON-RPC server listening on :9090")
 //
 //		// Run the server until context is cancelled
+//		// ListenAndServe handles listener creation and shutdown.
 //		if err := server.ListenAndServe(ctx, "tcp::9090"); err != nil && !errors.Is(err, net.ErrClosed) {
 //			log.Printf("Server error: %v", err)
 //		}
 //		log.Println("Server shut down gracefully")
 //	}
 //
-// ## Client (TCP)
+// # Client (TCP Example)
 //
 //	package main
 //
@@ -79,30 +81,41 @@
 //		defer cancel()
 //
 //		// DialBasic establishes the connection and creates a basic client.
+//		// It uses a ClientPool internally with MaxSize=1.
 //		client, err := jsonrpc2.DialBasic(ctx, "tcp:localhost:9090")
 //		if err != nil {
 //			log.Fatalf("Failed to dial server: %v", err)
 //		}
-//		defer client.Close() // Important to close the client connection
+//		defer client.Close() // Important to close the client connection pool
 //
+//		// Optional: Set a default timeout for all calls via this client instance.
 //		client.SetDefaultTimeout(5 * time.Second)
 //
 //		params := map[string]string{"message": "hello world"}
 //		var result map[string]string // Variable to hold the result
 //
 //		// Call the "echo" method on the server
-//		response, err = client.Call(ctx, "echo", params)
+//		// BasicClient handles request ID generation.
+//		// Pass params directly (must be marshalable to JSON object/array or nil).
+//		response, err := client.Call(ctx, "echo", params)
 //		if err != nil {
-//			log.Fatalf("RPC call failed: %v", err)
+//			// This error could be a connection error, timeout, etc.
+//			log.Fatalf("RPC transport/call failed: %v", err)
 //		}
 //
-//		if !response.IsError() {
-//			// Use Response.Result.Unmarshal(&yourStruct) or Response.Result.RawMessage()
-//			_ := Response.Result.Unmarshal(&result) // Check your errors in production
-//			log.Printf("Server responded: %v", result)
-//		} else {
-//			log.Printf("Server responded with an error: %v", response.Error)
+//		// Check if the response itself indicates a JSON-RPC error
+//		if response.IsError() {
+//			log.Printf("Server returned JSON-RPC error: Code=%d, Message=%s, Data=%v",
+//				response.Error.Code, response.Error.Message, response.Error.Data.RawMessage())
+//			return
 //		}
+//
+//		// Process the successful result
+//		// Use response.Result.Unmarshal(&yourStruct) or response.Result.RawMessage()
+//		if err := response.Result.Unmarshal(&result); err != nil {
+//			log.Fatalf("Failed to unmarshal result: %v", err)
+//		}
+//		log.Printf("Server responded successfully: %v", result)
 //	}
 //
 // [jsonrpc2 protocol]: https://www.jsonrpc.org/specification
