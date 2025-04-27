@@ -421,6 +421,48 @@ func TestBatch_UnmarshalJSON_Request(t *testing.T) {
 	assert.Contains(t, err.Error(), "cannot unmarshal object into Go value of type", "Error message should indicate type mismatch")
 }
 
+func TestBatch_Reset(t *testing.T) {
+	t.Parallel()
+
+	// Setup batch with initial capacity and elements
+	initialCap := 5
+	batch := NewBatch[*Request](initialCap)
+	req1 := NewRequest(int64(1), "method1")
+	req2 := NewRequest("req-2", "method2")
+	batch.Add(req1, req2)
+
+	assert.Len(t, batch, 2, "Initial length should be 2")
+	assert.Equal(t, initialCap, cap(batch), "Initial capacity should be %d", initialCap)
+	assert.NotNil(t, batch[0], "Element before reset should not be nil") // Check one element
+
+	// Reset the batch
+	batch.Reset()
+
+	// Assertions after reset
+	assert.Len(t, batch, 0, "Length after reset should be 0")
+	assert.Equal(t, initialCap, cap(batch), "Capacity after reset should remain %d", initialCap)
+
+	// Verify elements are cleared (check the first element of the underlying array)
+	// Accessing batch[0] would panic as len is 0. We check the capacity slice.
+	underlyingSlice := batch[:cap(batch)]
+	assert.Nil(t, underlyingSlice[0], "First element in underlying array should be nil after reset")
+	assert.Nil(t, underlyingSlice[1], "Second element in underlying array should be nil after reset")
+
+	// Test resetting an already empty batch
+	emptyBatch := NewBatch[*Response](3)
+	assert.Len(t, emptyBatch, 0)
+	assert.Equal(t, 3, cap(emptyBatch))
+	emptyBatch.Reset()
+	assert.Len(t, emptyBatch, 0, "Length of already empty batch should remain 0 after reset")
+	assert.Equal(t, 3, cap(emptyBatch), "Capacity of already empty batch should remain 3 after reset")
+
+	// Test resetting a nil batch (should not panic)
+	var nilBatch Batch[*Request]
+	assert.Nil(t, nilBatch)
+	nilBatch.Reset() // Should be a no-op and not panic
+	assert.Nil(t, nilBatch, "Nil batch should remain nil after reset")
+}
+
 func TestBatch_MarshalJSON_Response(t *testing.T) {
 	t.Parallel()
 
