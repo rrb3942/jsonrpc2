@@ -308,19 +308,19 @@ func TestResponse_MarshalUnmarshalJSON(t *testing.T) {
 			} else {
 				assert.False(t, unmarshaledResp.Error.IsZero(), "Expected non-zero error, but got zero")
 				// Compare error fields directly. For data, unmarshal if necessary.
-				assert.Equal(t, expectedResp.Error.err.Code, unmarshaledResp.Error.err.Code, "Error code mismatch")
-				assert.Equal(t, expectedResp.Error.err.Message, unmarshaledResp.Error.err.Message, "Error message mismatch")
+				assert.Equal(t, expectedResp.Error.Code, unmarshaledResp.Error.Code, "Error code mismatch")
+				assert.Equal(t, expectedResp.Error.Message, unmarshaledResp.Error.Message, "Error message mismatch")
 
 				// Compare Error Data
-				if expectedResp.Error.Data().IsZero() {
-					assert.True(t, unmarshaledResp.Error.Data().IsZero(), "Expected zero error data, but got non-zero")
+				if expectedResp.Error.Data.IsZero() {
+					assert.True(t, unmarshaledResp.Error.Data.IsZero(), "Expected zero error data, but got non-zero")
 				} else {
-					assert.False(t, unmarshaledResp.Error.Data().IsZero(), "Expected non-zero error data, but got zero")
+					assert.False(t, unmarshaledResp.Error.Data.IsZero(), "Expected non-zero error data, but got zero")
 
 					var unmarshaledErrDataVal any
-					err = unmarshaledResp.Error.Data().Unmarshal(&unmarshaledErrDataVal)
+					err = unmarshaledResp.Error.Data.Unmarshal(&unmarshaledErrDataVal)
 					require.NoError(t, err, "Failed to unmarshal actual error data for comparison")
-					assert.Equal(t, expectedResp.Error.Data().Value(), unmarshaledErrDataVal, "Error data content mismatch")
+					assert.Equal(t, expectedResp.Error.Data.Value(), unmarshaledErrDataVal, "Error data content mismatch")
 				}
 			}
 		})

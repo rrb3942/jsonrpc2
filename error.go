@@ -15,16 +15,6 @@ var (
 	ErrServerOverloaded = NewError(-32000, "Server overloaded") // Reserved for implementation-defined server-errors (-32000 to -32099).
 )
 
-// RPCError is the internal representation of a JSON-RPC error object.
-// It is typically not used directly; use the [Error] type instead.
-//
-//nolint:govet // We want order to match spec examples, even if not required.
-type RPCError struct {
-	Data    ErrorData `json:"data,omitempty,omitzero"`
-	Message string    `json:"message"`
-	Code    int64     `json:"code"` // A Number that indicates the error type that occurred.
-}
-
 // Error represents a JSON-RPC 2.0 error object.
 // It encapsulates a Code, Message, and optional Data.
 //
@@ -40,7 +30,9 @@ type RPCError struct {
 //nolint:govet // We want order to match spec examples, even if not required.
 type Error struct {
 	present bool
-	err     RPCError
+	Data    ErrorData `json:"data,omitempty,omitzero"`
+	Message string    `json:"message"`
+	Code    int64     `json:"code"` // A Number that indicates the error type that occurred.
 }
 
 // NewError creates a new [Error] with the specified code and message.
@@ -48,9 +40,9 @@ type Error struct {
 // Example:
 //
 //	err := jsonrpc2.NewError(-32001, "Application specific error")
-//	fmt.Println(err.Code(), err.Message()) // Output: -32001 Application specific error
+//	fmt.Println(err.Code, err.Message) // Output: -32001 Application specific error
 func NewError(code int64, msg string) Error {
-	return Error{present: true, err: RPCError{Code: code, Message: msg}}
+	return Error{present: true, Code: code, Message: msg}
 }
 
 // NewErrorWithData creates a new [Error] with the specified code, message, and additional data.
@@ -60,10 +52,10 @@ func NewError(code int64, msg string) Error {
 //
 //	details := map[string]string{"field": "username", "issue": "cannot be empty"}
 //	err := jsonrpc2.NewErrorWithData(-32602, "Invalid params", details)
-//	fmt.Println(err.Code(), err.Message()) // Output: -32602 Invalid params
-//	// err.Data() can be used to retrieve the details map after unmarshalling.
+//	fmt.Println(err.Code, err.Message) // Output: -32602 Invalid params
+//	// err.Data can be used to retrieve the details map after unmarshalling.
 func NewErrorWithData(code int64, msg string, data any) Error {
-	return Error{present: true, err: RPCError{Code: code, Message: msg, Data: NewErrorData(data)}}
+	return Error{present: true, Code: code, Message: msg, Data: NewErrorData(data)}
 }
 
 // asError converts a standard Go error into a jsonrpc2 [Error].
@@ -83,24 +75,6 @@ func asError(e error) Error {
 	return ErrInternalError.WithData(e.Error())
 }
 
-// Code returns the integer error code associated with this [Error].
-func (e *Error) Code() int64 {
-	return e.err.Code
-}
-
-// Message returns the string message describing this [Error].
-func (e *Error) Message() string {
-	return e.err.Message
-}
-
-// Data returns a pointer to the [ErrorData] associated with this [Error].
-// The returned pointer is never nil, but the underlying data may be empty or nil
-// if no data was provided when the error was created. Use [ErrorData.Unmarshal]
-// to extract the contained data.
-func (e *Error) Data() *ErrorData {
-	return &e.err.Data
-}
-
 // WithData returns a *new* [Error] instance based on the original,
 // but with its data field replaced by the provided `data`.
 // The original error remains unchanged.
@@ -109,7 +83,7 @@ func (e *Error) Data() *ErrorData {
 //
 //	detailedErr := jsonrpc2.ErrInvalidRequest.WithData("Request missing 'method' field")
 func (e Error) WithData(data any) Error {
-	return NewErrorWithData(e.Code(), e.Message(), data)
+	return NewErrorWithData(e.Code, e.Message, data)
 }
 
 // Is reports whether the target error `t` is considered equivalent to this [Error].
@@ -124,11 +98,11 @@ func (e Error) WithData(data any) Error {
 //	}
 func (e Error) Is(t error) bool {
 	if jerr, ok := t.(Error); ok {
-		return e.err.Code == jerr.err.Code
+		return (e.present && jerr.present && e.Code == jerr.Code)
 	}
 
 	if jerr, ok := t.(*Error); ok {
-		return e.err.Code == jerr.err.Code
+		return (e.present && jerr.present && e.Code == jerr.Code)
 	}
 
 	return false
@@ -144,24 +118,26 @@ func (e *Error) IsZero() bool {
 // Error implements the standard Go `error` interface. It returns the message
 // part of the JSON-RPC error.
 func (e Error) Error() string {
-	return e.err.Message
+	return e.Message
 }
 
 // UnmarshalJSON implements the [json.Unmarshaler] interface.
 // It allows the [Error] type to be correctly populated from JSON data.
 func (e *Error) UnmarshalJSON(b []byte) error {
-	if err := Unmarshal(b, &e.err); err != nil {
+	var rpcErr struct {
+		Data    ErrorData `json:"data,omitempty,omitzero"`
+		Message string    `json:"message"`
+		Code    int64     `json:"code"` // A Number that indicates the error type that occurred.
+	}
+
+	if err := Unmarshal(b, &rpcErr); err != nil {
 		return err
 	}
 
 	e.present = true
+	e.Code = rpcErr.Code
+	e.Message = rpcErr.Message
+	e.Data = rpcErr.Data
 
 	return nil
-}
-
-// MarshalJSON implements the [json.Marshaler] interface.
-// It allows the [Error] type to be correctly serialized into JSON data.
-func (e *Error) MarshalJSON() ([]byte, error) {
-	// Only marshal the internal RPCError struct
-	return Marshal(&e.err)
 }

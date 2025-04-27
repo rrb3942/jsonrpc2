@@ -230,7 +230,7 @@ func TestHTTPHandler_ServeHTTP_HandlerError(t *testing.T) {
 	assert.Equal(t, json.Number("1"), rpcResp.ID.value)
 	assert.True(t, rpcResp.Result.IsZero())
 	require.False(t, rpcResp.Error.IsZero())
-	assert.Equal(t, int64(123), rpcResp.Error.Code())
+	assert.Equal(t, int64(123), rpcResp.Error.Code)
 	assert.Equal(t, "test error", rpcResp.Error.Error())
 }
 

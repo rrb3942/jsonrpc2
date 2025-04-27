@@ -36,7 +36,7 @@ func run() int {
 	}
 
 	if resp.IsError() {
-		log.Println(resp.Error.Message())
+		log.Println(resp.Error.Message)
 		return -3
 	}
 

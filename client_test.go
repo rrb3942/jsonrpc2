@@ -382,7 +382,7 @@ func TestClient_Call_ServerError(t *testing.T) {
 		t.Fatalf("Response should indicate an error, but IsError() is false")
 	}
 
-	if resp.Error.Code() != expectedErr.Code() || resp.Error.Message() != expectedErr.Message() {
+	if resp.Error.Code != expectedErr.Code || resp.Error.Message != expectedErr.Message {
 		t.Errorf("Received error mismatch: got %+v, want %+v", resp.Error, expectedErr)
 	}
 

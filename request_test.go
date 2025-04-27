@@ -64,10 +64,10 @@ func TestRequest_ResponseWithError(t *testing.T) {
 	assert.Equal(t, req.ID, respStdErr.ID)
 	assert.True(t, respStdErr.Result.IsZero())
 	assert.False(t, respStdErr.Error.IsZero())
-	assert.Equal(t, ErrInternalError.err.Code, respStdErr.Error.err.Code)
-	assert.Equal(t, ErrInternalError.err.Message, respStdErr.Error.err.Message)
+	assert.Equal(t, ErrInternalError.Code, respStdErr.Error.Code)
+	assert.Equal(t, ErrInternalError.Message, respStdErr.Error.Message)
 
-	gotData := respStdErr.Error.Data().Value()
+	gotData := respStdErr.Error.Data.Value()
 	assert.Equal(t, stdErr.Error(), gotData)
 
 	// Test with jsonrpc2.Error
@@ -76,9 +76,9 @@ func TestRequest_ResponseWithError(t *testing.T) {
 	assert.Equal(t, req.ID, respRPCErr.ID)
 	assert.True(t, respRPCErr.Result.IsZero())
 	assert.False(t, respRPCErr.Error.IsZero())
-	assert.Equal(t, rpcErr.err.Code, respRPCErr.Error.err.Code)
-	assert.Equal(t, rpcErr.err.Message, respRPCErr.Error.err.Message)
-	assert.True(t, respRPCErr.Error.Data().IsZero()) // No data added in this case
+	assert.Equal(t, rpcErr.Code, respRPCErr.Error.Code)
+	assert.Equal(t, rpcErr.Message, respRPCErr.Error.Message)
+	assert.True(t, respRPCErr.Error.Data.IsZero()) // No data added in this case
 }
 
 func TestRequest_ResponseWithResult(t *testing.T) {

@@ -17,16 +17,16 @@ func TestNewError(t *testing.T) {
 		t.Error("Expected error to be present")
 	}
 
-	if err.err.Code != code {
-		t.Errorf("Expected code %d, got %d", code, err.err.Code)
+	if err.Code != code {
+		t.Errorf("Expected code %d, got %d", code, err.Code)
 	}
 
-	if err.err.Message != msg {
-		t.Errorf("Expected message %q, got %q", msg, err.err.Message)
+	if err.Message != msg {
+		t.Errorf("Expected message %q, got %q", msg, err.Message)
 	}
 
-	if !err.err.Data.IsZero() {
-		t.Errorf("Expected data to be zero, but got %v", err.err.Data)
+	if !err.Data.IsZero() {
+		t.Errorf("Expected data to be zero, but got %v", err.Data)
 	}
 }
 
@@ -40,15 +40,15 @@ func TestNewErrorWithData(t *testing.T) {
 		t.Error("Expected error to be present")
 	}
 
-	if err.err.Code != code {
-		t.Errorf("Expected code %d, got %d", code, err.err.Code)
+	if err.Code != code {
+		t.Errorf("Expected code %d, got %d", code, err.Code)
 	}
 
-	if err.err.Message != msg {
-		t.Errorf("Expected message %q, got %q", msg, err.err.Message)
+	if err.Message != msg {
+		t.Errorf("Expected message %q, got %q", msg, err.Message)
 	}
 
-	gotData := err.Data().Value()
+	gotData := err.Data.Value()
 	if !reflect.DeepEqual(gotData, data) {
 		t.Errorf("Expected data %v, got %v", data, gotData)
 	}
@@ -66,22 +66,22 @@ func TestAsError(t *testing.T) {
 		{
 			name:     "Standard Error",
 			inputErr: errors.New("a standard error"),
-			wantCode: ErrInternalError.Code(),
-			wantMsg:  ErrInternalError.Message(),
+			wantCode: ErrInternalError.Code,
+			wantMsg:  ErrInternalError.Message,
 			wantData: "a standard error",
 		},
 		{
 			name:     "JSONRPC2 Error",
 			inputErr: ErrMethodNotFound,
-			wantCode: ErrMethodNotFound.Code(),
-			wantMsg:  ErrMethodNotFound.Message(),
+			wantCode: ErrMethodNotFound.Code,
+			wantMsg:  ErrMethodNotFound.Message,
 			wantData: "", // No data expected
 		},
 		{
 			name:     "JSONRPC2 Error with Data",
 			inputErr: ErrInvalidParams.WithData("param 'x' missing"),
-			wantCode: ErrInvalidParams.Code(),
-			wantMsg:  ErrInvalidParams.Message(),
+			wantCode: ErrInvalidParams.Code,
+			wantMsg:  ErrInvalidParams.Message,
 			wantData: "param 'x' missing",
 		},
 	}
@@ -90,21 +90,21 @@ func TestAsError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gotErr := asError(tt.inputErr)
 
-			if gotErr.Code() != tt.wantCode {
-				t.Errorf("asError(%v) code = %d; want %d", tt.inputErr, gotErr.Code(), tt.wantCode)
+			if gotErr.Code != tt.wantCode {
+				t.Errorf("asError(%v) code = %d; want %d", tt.inputErr, gotErr.Code, tt.wantCode)
 			}
 
-			if gotErr.Message() != tt.wantMsg {
-				t.Errorf("asError(%v) message = %q; want %q", tt.inputErr, gotErr.Message(), tt.wantMsg)
+			if gotErr.Message != tt.wantMsg {
+				t.Errorf("asError(%v) message = %q; want %q", tt.inputErr, gotErr.Message, tt.wantMsg)
 			}
 
 			if tt.wantData != "" {
-				gotData := gotErr.Data().Value()
+				gotData := gotErr.Data.Value()
 				if !reflect.DeepEqual(gotData, tt.wantData) {
 					t.Errorf("asError(%v) data = %q; want %q", tt.inputErr, gotData, tt.wantData)
 				}
-			} else if !gotErr.Data().IsZero() {
-				t.Errorf("asError(%v) expected zero data, got %v", tt.inputErr, gotErr.Data())
+			} else if !gotErr.Data.IsZero() {
+				t.Errorf("asError(%v) expected zero data, got %v", tt.inputErr, gotErr.Data)
 			}
 		})
 	}
@@ -112,14 +112,14 @@ func TestAsError(t *testing.T) {
 
 func TestErrorCode(t *testing.T) {
 	err := NewError(123, "test")
-	if code := err.Code(); code != 123 {
+	if code := err.Code; code != 123 {
 		t.Errorf("Expected code 123, got %d", code)
 	}
 }
 
 func TestErrorMessage(t *testing.T) {
 	err := NewError(123, "test message")
-	if msg := err.Message(); msg != "test message" {
+	if msg := err.Message; msg != "test message" {
 		t.Errorf("Expected message 'test message', got %q", msg)
 	}
 }
@@ -127,7 +127,7 @@ func TestErrorMessage(t *testing.T) {
 func TestErrorData(t *testing.T) {
 	data := "some data"
 	err := NewErrorWithData(123, "test", data)
-	errData := err.Data()
+	errData := err.Data
 
 	if errData.IsZero() {
 		t.Fatal("Expected data to be non-zero")
@@ -145,20 +145,20 @@ func TestErrorWithData(t *testing.T) {
 	errWithData := originalErr.WithData(data)
 
 	// Check original error is unchanged
-	if !originalErr.Data().IsZero() {
-		t.Errorf("Original error data should be zero, got %v", originalErr.Data())
+	if !originalErr.Data.IsZero() {
+		t.Errorf("Original error data should be zero, got %v", originalErr.Data)
 	}
 
 	// Check new error
-	if errWithData.Code() != originalErr.Code() {
-		t.Errorf("Expected code %d, got %d", originalErr.Code(), errWithData.Code())
+	if errWithData.Code != originalErr.Code {
+		t.Errorf("Expected code %d, got %d", originalErr.Code, errWithData.Code)
 	}
 
-	if errWithData.Message() != originalErr.Message() {
-		t.Errorf("Expected message %q, got %q", originalErr.Message(), errWithData.Message())
+	if errWithData.Message != originalErr.Message {
+		t.Errorf("Expected message %q, got %q", originalErr.Message, errWithData.Message)
 	}
 
-	gotData := errWithData.Data().Value()
+	gotData := errWithData.Data.Value()
 	if !reflect.DeepEqual(gotData, data) {
 		t.Errorf("Expected data %v, got %v", data, gotData)
 	}
@@ -170,20 +170,24 @@ func TestErrorIs(t *testing.T) {
 	err3 := NewError(200, "Error 200")
 	stdErr := errors.New("standard error")
 
-	if !errors.Is(err1, &Error{err: RPCError{Code: 100}}) {
+	if !errors.Is(err1, &Error{present: true, Code: 100}) {
 		t.Errorf("Expected err1 to be Error{Code: 100}")
 	}
 
-	if !errors.Is(err2, &Error{err: RPCError{Code: 100}}) {
+	if !errors.Is(err2, &Error{present: true, Code: 100}) {
 		t.Errorf("Expected err2 to be Error{Code: 100}")
 	}
 
-	if errors.Is(err1, Error{err: RPCError{Code: 200}}) {
+	if errors.Is(err1, Error{present: true, Code: 200}) {
 		t.Errorf("Expected err1 not to be Error{Code: 200}")
 	}
 
-	if errors.Is(err3, Error{err: RPCError{Code: 100}}) {
+	if errors.Is(err3, Error{present: true, Code: 100}) {
 		t.Errorf("Expected err3 not to be Error{Code: 100}")
+	}
+
+	if errors.Is(err1, Error{Code: 100}) {
+		t.Errorf("Expected err1 not to be zero Error{Code: 100}")
 	}
 
 	if errors.Is(err1, stdErr) {
@@ -322,26 +326,26 @@ func TestErrorMarshalUnmarshalJSON(t *testing.T) {
 
 			// Compare the unmarshalled error with the original input error
 			// Need to compare fields directly as Data might be json.RawMessage vs original type
-			if unmarshaledErr.Code() != tt.input.Code() {
-				t.Errorf("UnmarshalJSON code mismatch: got %d, want %d", unmarshaledErr.Code(), tt.input.Code())
+			if unmarshaledErr.Code != tt.input.Code {
+				t.Errorf("UnmarshalJSON code mismatch: got %d, want %d", unmarshaledErr.Code, tt.input.Code)
 			}
 
-			if unmarshaledErr.Message() != tt.input.Message() {
-				t.Errorf("UnmarshalJSON message mismatch: got %q, want %q", unmarshaledErr.Message(), tt.input.Message())
+			if unmarshaledErr.Message != tt.input.Message {
+				t.Errorf("UnmarshalJSON message mismatch: got %q, want %q", unmarshaledErr.Message, tt.input.Message)
 			}
 
-			if tt.input.Data().IsZero() {
-				if !unmarshaledErr.Data().IsZero() {
+			if tt.input.Data.IsZero() {
+				if !unmarshaledErr.Data.IsZero() {
 					t.Errorf("UnmarshalJSON data mismatch: expected zero data, got non-zero")
 				}
 			} else {
 				// Unmarshal both data fields into interfaces for comparison
 				var gotData any
-				if err := unmarshaledErr.Data().Unmarshal(&gotData); err != nil && !errors.Is(err, ErrEmptyData) { // Allow empty data for zero error case
+				if err := unmarshaledErr.Data.Unmarshal(&gotData); err != nil && !errors.Is(err, ErrEmptyData) { // Allow empty data for zero error case
 					t.Fatalf("Failed to unmarshal 'got' data: %v", err)
 				}
 
-				wantData := tt.input.Data().Value()
+				wantData := tt.input.Data.Value()
 
 				// Handle json.Number comparison if necessary
 				gotData = normalizeJSONNumbers(gotData)
@@ -407,9 +411,9 @@ func ExampleError_WithData() {
 	baseErr := NewError(-32602, "Invalid params")
 	errWithDetails := baseErr.WithData("Parameter 'count' must be positive")
 
-	fmt.Printf("Code: %d\n", errWithDetails.Code())
-	fmt.Printf("Message: %s\n", errWithDetails.Message())
-	fmt.Printf("Data: %s\n", errWithDetails.Data().Value())
+	fmt.Printf("Code: %d\n", errWithDetails.Code)
+	fmt.Printf("Message: %s\n", errWithDetails.Message)
+	fmt.Printf("Data: %s\n", errWithDetails.Data.Value())
 
 	// Output:
 	// Code: -32602

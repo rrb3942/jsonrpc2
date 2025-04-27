@@ -491,8 +491,8 @@ func TestBatch_UnmarshalJSON_Response(t *testing.T) {
 			assert.Equal(t, expectedBatch[i].Error.IsZero(), actualBatch[i].Error.IsZero(), "Error presence mismatch at index %d", i)
 
 			if !expectedBatch[i].Error.IsZero() {
-				assert.Equal(t, expectedBatch[i].Error.err.Code, actualBatch[i].Error.err.Code, "Error code mismatch at index %d", i)
-				assert.Equal(t, expectedBatch[i].Error.err.Message, actualBatch[i].Error.err.Message, "Error message mismatch at index %d", i)
+				assert.Equal(t, expectedBatch[i].Error.Code, actualBatch[i].Error.Code, "Error code mismatch at index %d", i)
+				assert.Equal(t, expectedBatch[i].Error.Message, actualBatch[i].Error.Message, "Error message mismatch at index %d", i)
 				// Comparing Result/Error Data requires unmarshalling, skip for simplicity or add if needed
 			}
 
