@@ -135,10 +135,11 @@ func dialTLS(ctx context.Context, network, addr string) (*TransportClient, error
 //	err = bc.Call(context.Background(), "echo", jsonrpc2.NewParamsArray("hello"), &result)
 //	// ... handle result/error ...
 func Dial(ctx context.Context, destURI string) (*Client, error) {
-	// Create a default config with only the URI set.
-	// DialWithConfig will handle setting AcquireOnCreate=true and other defaults.
+	// Create a default config, explicitly setting AcquireOnCreate=true
+	// to ensure the connection is validated during the dial process.
 	config := ClientPoolConfig{
-		URI: destURI,
+		URI:             destURI,
+		AcquireOnCreate: true,
 	}
 	// Delegate to DialWithConfig.
 	return DialWithConfig(ctx, config)
