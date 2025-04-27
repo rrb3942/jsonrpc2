@@ -28,7 +28,7 @@ var (
 //   - Injects the [*http.Request] into the request context using the [CtxHTTPRequest] key.
 //   - Handles request size limits if MaxBytes is set.
 //   - Manages an internal [RPCServer] configured for synchronous, serial processing suitable for HTTP.
-//   - Translates specific errors (like parsing errors or size limits) into appropriate HTTP status codes.
+//   - Translates specific errors (like size limits) into appropriate HTTP status codes.
 type HTTPHandler struct {
 	handler Handler // The core JSON-RPC request handler.
 
@@ -58,9 +58,9 @@ type HTTPHandler struct {
 // Example:
 //
 //	mux := jsonrpc2.NewMethodMux()
-//	mux.RegisterMethod("echo", jsonrpc2.HandlerFunc(func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
+//	mux.RegisterFunc("echo", func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
 //	    return req.Params, nil
-//	}))
+//	})
 //	httpHandler := jsonrpc2.NewHTTPHandler(mux)
 //	http.Handle("/rpc", httpHandler)
 //	log.Fatal(http.ListenAndServe(":8080", nil))
