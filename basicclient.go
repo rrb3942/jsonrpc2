@@ -15,12 +15,15 @@ var ErrInvalidParamsType = errors.New("jsonrpc2: params must marshal to a JSON o
 
 // makeParamsFromAny marshals the given value and validates that it represents
 // a JSON object or array, returning a Params struct or an error.
-// If v is nil, it returns empty Params and no error.
+// If v is nil, it returns empty Params{} and no error, signifying omitted parameters.
 func makeParamsFromAny(v any) (Params, error) {
 	if v == nil {
-		return Params{}, nil // Omitting params is allowed
+		// If the input is nil, treat it as omitted parameters (valid in JSON-RPC 2.0).
+		// Return the zero value for Params and no error.
+		return Params{}, nil
 	}
 
+	// Marshal the non-nil value to JSON bytes.
 	raw, err := Marshal(v)
 	if err != nil {
 		return Params{}, fmt.Errorf("jsonrpc2: failed to marshal params: %w", err)
@@ -31,7 +34,7 @@ func makeParamsFromAny(v any) (Params, error) {
 		return Params{}, fmt.Errorf("%w: got %T", ErrInvalidParamsType, v)
 	}
 
-	return NewParams(json.RawMessage(raw)), nil
+	return NewParamsRaw(json.RawMessage(raw)), nil
 }
 
 // BasicClient provides a simplified interface for making JSON-RPC 2.0 calls
