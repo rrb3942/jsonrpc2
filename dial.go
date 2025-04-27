@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"time" // Added for example in DialWithConfig docs
 )
 
 // Dial establishes a JSON-RPC 2.0 client connection to the specified destination URI.
@@ -134,16 +135,51 @@ func dialTLS(ctx context.Context, network, addr string) (*TransportClient, error
 //	err = bc.Call(context.Background(), "echo", jsonrpc2.NewParamsArray("hello"), &result)
 //	// ... handle result/error ...
 func Dial(ctx context.Context, destURI string) (*Client, error) {
-	// Configure a pool specifically for Client:
-	// - AcquireOnCreate: true, to validate the connection immediately.
-	// - Use default timeouts/retries unless further configuration is added here.
+	// Create a default config with only the URI set.
+	// DialWithConfig will handle setting AcquireOnCreate=true and other defaults.
 	config := ClientPoolConfig{
-		URI:             destURI,
-		AcquireOnCreate: true,
-		// Inherit default DialTimeout, IdleTimeout, Retries from ClientPoolConfig defaults
+		URI: destURI,
 	}
+	// Delegate to DialWithConfig.
+	return DialWithConfig(ctx, config)
+}
 
-	// Create the pool using the default Dial function.
+// DialWithConfig establishes a connection using a provided ClientPoolConfig
+// and returns a [*Client] ready for making simplified RPC calls.
+//
+// It's similar to [Dial] but allows customization of the underlying connection
+// pool's behavior (e.g., timeouts, size, retries) via the `config` parameter.
+// The `URI` field within the provided `config` specifies the destination address.
+//
+// This function *always* sets `config.AcquireOnCreate` to `true` before creating
+// the pool, ensuring the connection is established and validated during the dial
+// process, regardless of the initial value in the passed `config`.
+//
+// See [DialTransport] for details on supported URI schemes specified in `config.URI`.
+//
+// Example:
+//
+//	customConfig := jsonrpc2.ClientPoolConfig{
+//	    URI:         "tcp:localhost:9090",
+//	    MaxSize:     5,
+//	    IdleTimeout: 2 * time.Minute,
+//	    Retries:     3,
+//	    DialTimeout: 10 * time.Second,
+//	}
+//	bc, err := jsonrpc2.DialWithConfig(context.Background(), customConfig)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer bc.Close()
+//
+//	var result string
+//	err = bc.Call(context.Background(), "echo", jsonrpc2.NewParamsArray("hello"), &result)
+//	// ... handle result/error ...
+func DialWithConfig(ctx context.Context, config ClientPoolConfig) (*Client, error) {
+	// Ensure AcquireOnCreate is true for dial semantics, overriding user setting if necessary.
+	config.AcquireOnCreate = true
+
+	// Create the pool using the provided config and the default DialTransport function.
 	pool, err := NewClientPool(ctx, config)
 	if err != nil {
 		return nil, err // Failed to create pool (likely connection failure)
