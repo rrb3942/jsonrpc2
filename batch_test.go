@@ -458,6 +458,7 @@ func TestBatch_Reset(t *testing.T) {
 
 	// Test resetting a nil batch (should not panic)
 	var nilBatch Batch[*Request]
+
 	assert.Nil(t, nilBatch)
 	nilBatch.Reset() // Should be a no-op and not panic
 	assert.Nil(t, nilBatch, "Nil batch should remain nil after reset")
