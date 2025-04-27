@@ -38,7 +38,7 @@ func makeParamsFromAny(v any) (Params, error) {
 }
 
 // BasicClient provides a simplified interface for making JSON-RPC 2.0 calls
-// to a server. It wraps a [ClientPool] (configured with MaxSize=1) to manage
+// to a server. It wraps a [ClientPool] to manage
 // the underlying connection and automatically handles request IDs.
 //
 // It does not support sending batch requests. Use [Client] or [ClientPool] directly
@@ -96,6 +96,7 @@ func (c *BasicClient) Call(ctx context.Context, method string, params any) (*Res
 	if c.defaultTimeout > 0 {
 		return c.pool.CallWithTimeout(ctx, c.defaultTimeout, req)
 	}
+
 	return c.pool.Call(ctx, req)
 }
 
@@ -119,5 +120,6 @@ func (c *BasicClient) Notify(ctx context.Context, method string, params any) err
 	if c.defaultTimeout > 0 {
 		return c.pool.NotifyWithTimeout(ctx, c.defaultTimeout, notif)
 	}
+
 	return c.pool.Notify(ctx, notif)
 }

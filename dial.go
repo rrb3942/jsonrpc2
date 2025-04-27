@@ -3,6 +3,7 @@ package jsonrpc2
 import (
 	"context"
 	"crypto/tls"
+	"math/rand/v2"
 	"net"
 	"net/url"
 	"strings"
@@ -114,7 +115,7 @@ func dialTLS(ctx context.Context, network, addr string) (*Client, error) {
 // DialBasic is a convenience function that establishes a connection to the destination URI
 // and returns a [*BasicClient] ready for making simplified RPC calls.
 //
-// It internally creates a [ClientPool] configured with MaxSize=1 and AcquireOnCreate=true,
+// It internally creates a [ClientPool] configured with AcquireOnCreate=true,
 // ensuring the connection is established and validated during the dial process.
 // The underlying connection management and retries are handled by the pool.
 //
@@ -122,7 +123,7 @@ func dialTLS(ctx context.Context, network, addr string) (*Client, error) {
 //
 // Example:
 //
-//	bc, err := jsonrpc2.DialBasic(context.Background(), "tcp://localhost:9090")
+//	bc, err := jsonrpc2.DialBasic(context.Background(), "tcp:localhost:9090")
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
@@ -139,7 +140,6 @@ func DialBasic(ctx context.Context, destURI string) (*BasicClient, error) {
 	// - Use default timeouts/retries unless further configuration is added here.
 	config := ClientPoolConfig{
 		URI:             destURI,
-		MaxSize:         1,
 		AcquireOnCreate: true,
 		// Inherit default DialTimeout, IdleTimeout, Retries from ClientPoolConfig defaults
 	}
@@ -155,5 +155,6 @@ func DialBasic(ctx context.Context, destURI string) (*BasicClient, error) {
 	// Initialize the atomic ID with a random starting value.
 	//nolint:gosec // We just want to avoid always starting at 0
 	bc.id.Store(rand.Uint32())
+
 	return bc, nil
 }
