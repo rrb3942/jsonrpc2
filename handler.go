@@ -65,30 +65,34 @@ func (fh *funcHandler) Handle(ctx context.Context, req *Request) (any, error) {
 	return fh.funcHandle(ctx, req)
 }
 
-// MethodMux routes incoming requests to different [Handler] implementations
-// based on the method name specified in the [Request].
-// Method names are case-sensitive.
+// MethodMux routes incoming JSON-RPC requests to different [Handler] implementations
+// based on the method name specified in the [Request]. Method names are case-sensitive.
 //
 // A MethodMux itself implements the [Handler] interface, allowing it to be used
 // directly as the main handler for an [RPCServer] or nested within other muxes.
+// If no specific handler is found for a method, and a default handler has been set
+// via [MethodMux.SetDefault] or [MethodMux.SetDefaultFunc], the default handler is invoked.
+// Otherwise, [ErrMethodNotFound] is returned.
 //
-// MethodMux is safe for concurrent use by multiple goroutines. Reads (Handle) and
-// writes (Register, RegisterFunc) can happen concurrently, although frequent
-// registration contention might impact performance. Registration should ideally
-// happen during application initialization.
+// MethodMux is safe for concurrent use. Reads ([MethodMux.Handle]) and writes
+// ([MethodMux.Register], [MethodMux.Replace], [MethodMux.Delete], etc.) can happen
+// concurrently. Use [NewMethodMux] to create instances.
 type MethodMux struct {
-	defaultHandler atomic.Value
-	mux            sync.Map
+	// defaultHandler stores the Handler to use when no specific method match is found.
+	defaultHandler atomic.Value // Stores Handler interface type
+	// mux stores the mapping from method names (string) to Handlers.
+	mux sync.Map // map[string]Handler
 }
 
-// NewMethodMux creates and initializes a new [*MethodMux].
+// NewMethodMux creates and returns a new, initialized [*MethodMux].
 func NewMethodMux() *MethodMux {
-	return &MethodMux{} // sync.Map is ready to use
+	return &MethodMux{} // Initializes with an empty sync.Map
 }
 
 // Register associates a [Handler] with a specific method name.
-// If a handler is already registered for the given method, it returns [ErrMethodAlreadyExists].
-// Method names are case-sensitive.
+// It returns [ErrMethodAlreadyExists] if a handler for the given method name
+// is already registered. Method names are case-sensitive.
+// Use [MethodMux.Replace] to overwrite an existing handler.
 //
 // Example:
 //
@@ -109,15 +113,25 @@ func (mm *MethodMux) Register(method string, handler Handler) error {
 	return nil
 }
 
-// Replace registers a new, or replaces an existing handler for method.
+// Replace registers or replaces the handler for the given method name.
+// If a handler for the method already exists, it is overwritten.
+// Method names are case-sensitive.
+//
+// Example:
+//
+//	mux := jsonrpc2.NewMethodMux()
+//	mux.Register("myMethod", oldHandler)
+//	mux.Replace("myMethod", newHandler) // Overwrites oldHandler
+//	mux.Replace("newMethod", handler)   // Registers handler for newMethod
 func (mm *MethodMux) Replace(method string, handler Handler) {
 	mm.mux.Store(method, handler)
 }
 
-// RegisterFunc associates a function `f` with a specific method name.
-// It wraps the function using [NewFuncHandler].
-// If a handler is already registered for the given method, it returns [ErrMethodAlreadyExists].
-// Method names are case-sensitive.
+// RegisterFunc associates a handler function `f` with a specific method name.
+// It wraps the function using [NewFuncHandler] before registering it.
+// It returns [ErrMethodAlreadyExists] if a handler for the given method name
+// is already registered. Method names are case-sensitive.
+// Use [MethodMux.ReplaceFunc] to overwrite an existing handler.
 //
 // Example:
 //
@@ -136,14 +150,24 @@ func (mm *MethodMux) RegisterFunc(method string, f func(context.Context, *Reques
 	return mm.Register(method, NewFuncHandler(f))
 }
 
-// Replace registers a new, or replaces an existing handler for method using the given function.
+// ReplaceFunc registers or replaces the handler for the given method name
+// using the provided handler function `f`. It wraps the function using [NewFuncHandler].
+// If a handler for the method already exists, it is overwritten.
+// Method names are case-sensitive.
+//
+// Example:
+//
+//	mux := jsonrpc2.NewMethodMux()
+//	echoFunc := func(ctx context.Context, req *jsonrpc2.Request) (any, error) { return req.Params, nil }
+//	mux.ReplaceFunc("utils.echo", echoFunc) // Registers or replaces handler for utils.echo
 func (mm *MethodMux) ReplaceFunc(method string, f func(context.Context, *Request) (any, error)) {
 	mm.Replace(method, NewFuncHandler(f))
 }
 
-// Methods returns a list of the currently served methods.
+// Methods returns a slice containing the names of all currently registered methods.
+// The order of methods in the slice is not guaranteed.
 func (mm *MethodMux) Methods() []string {
-	methods := make([]string, 0)
+	methods := make([]string, 0) // Pre-allocate slightly? sync.Map doesn't provide count easily.
 
 	//nolint:errcheck //Internally managed, key is never not a string
 	mm.mux.Range(func(key, _ any) bool { methods = append(methods, key.(string)); return true })
@@ -151,38 +175,83 @@ func (mm *MethodMux) Methods() []string {
 	return methods
 }
 
-// Delete deletes any currently set handler for method.
+// Delete removes the handler associated with the given method name.
+// If no handler is registered for the method, this is a no-op.
+//
+// Example:
+//
+//	mux.Delete("obsoleteMethod")
 func (mm *MethodMux) Delete(method string) {
 	mm.mux.Delete(method)
 }
 
-// SetDefault sets a default handler to run instead of returning ErrMethodNotFound
+// SetDefault sets the default [Handler] to be called when no specific handler
+// is found for a requested method.
+// Calling with `nil` removes the default handler.
 //
-// Call with `nil` to remove the default handler at any time.
+// Example:
+//
+//	// Handler that returns a custom error for unknown methods
+//	unknownMethodHandler := jsonrpc2.NewFuncHandler(func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
+//	    return nil, jsonrpc2.NewError(1234, "Unknown method requested: "+req.Method)
+//	})
+//	mux.SetDefault(unknownMethodHandler)
+//
+//	// To remove the default handler:
+//	// mux.SetDefault(nil)
 func (mm *MethodMux) SetDefault(handler Handler) {
-	mm.defaultHandler.Store(handler)
+	if handler == nil {
+		// Use Delete to clear the value, ensuring Load returns nil, false later.
+		mm.defaultHandler.Delete()
+	} else {
+		mm.defaultHandler.Store(handler)
+	}
 }
 
-// SetDefault sets a default handler func to run instead of returning ErrMethodNotFound.
+// SetDefaultFunc sets the default handler function to be called when no specific
+// handler is found. It wraps the function `f` using [NewFuncHandler].
+// Calling with `nil` removes the default handler.
+//
+// Example:
+//
+//	mux.SetDefaultFunc(func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
+//	    log.Printf("Warning: Unhandled method called: %s", req.Method)
+//	    return nil, jsonrpc2.ErrMethodNotFound // Still return standard error
+//	})
+//
+//	// To remove the default handler:
+//	// mux.SetDefaultFunc(nil)
 func (mm *MethodMux) SetDefaultFunc(f func(context.Context, *Request) (any, error)) {
-	mm.SetDefault(NewFuncHandler(f))
+	if f == nil {
+		mm.SetDefault(nil)
+	} else {
+		mm.SetDefault(NewFuncHandler(f))
+	}
 }
 
 // Handle implements the [Handler] interface for MethodMux.
 // It looks up the handler registered for the method specified in the [Request].
-// If a handler is found, Handle delegates the request processing to that handler.
-// If no handler is registered for the method, it returns a nil result and [ErrMethodNotFound].
+// If a specific handler is found, Handle delegates the request processing to it.
+// If no specific handler is found, it checks if a default handler is set.
+// If a default handler exists, it delegates to the default handler.
+// If neither a specific nor a default handler is found, it returns [ErrMethodNotFound].
 func (mm *MethodMux) Handle(ctx context.Context, req *Request) (any, error) {
-	// Load the handler associated with the method name.
+	// Load the handler associated with the specific method name.
 	value, ok := mm.mux.Load(req.Method)
-	if !ok {
-		// Check for default handler
-		if value = mm.defaultHandler.Load(); value == nil {
-			// Method not found.
-			return nil, ErrMethodNotFound
-		}
+	if ok {
+		// Specific handler found, delegate to it.
+		// Type assertion is safe due to how handlers are stored.
+		return value.(Handler).Handle(ctx, req)
 	}
 
-	//nolint:errcheck //Should be impossible, but handlRequest will catch the panic anyways for us
-	return value.(Handler).Handle(ctx, req)
+	// No specific handler found, try loading the default handler.
+	defaultValue := mm.defaultHandler.Load()
+	if defaultValue != nil {
+		// Default handler exists, delegate to it.
+		// Type assertion is safe due to how the default handler is stored.
+		return defaultValue.(Handler).Handle(ctx, req)
+	}
+
+	// No specific handler and no default handler found.
+	return nil, ErrMethodNotFound
 }
