@@ -2,8 +2,6 @@ package jsonrpc2
 
 import (
 	"context"
-	"io"
-	"math/rand/v2"
 	"sync/atomic"
 	"time"
 )
