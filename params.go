@@ -1,5 +1,3 @@
-// Package jsonrpc2 provides types and functions for implementing JSON-RPC 2.0 clients and servers.
-// This file specifically defines the `Params` type used for request parameters.
 package jsonrpc2
 
 import (

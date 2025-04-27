@@ -1,3 +1,4 @@
+//nolint:goconst //Tests are self contained, but repetitive
 package jsonrpc2
 
 import (
@@ -80,6 +81,7 @@ func TestMethodMux_Replace(t *testing.T) {
 
 	// Replace a non-existent handler (should just register it)
 	mux.Replace("newMethod", handler1)
+
 	reqNew := &Request{Method: "newMethod"}
 	res, err = mux.Handle(t.Context(), reqNew)
 	require.NoError(t, err)
@@ -131,6 +133,7 @@ func TestMethodMux_ReplaceFunc(t *testing.T) {
 
 	// Replace a non-existent func (should just register it)
 	mux.ReplaceFunc("newMethod", func1)
+
 	reqNew := &Request{Method: "newMethod"}
 	res, err = mux.Handle(t.Context(), reqNew)
 	require.NoError(t, err)
@@ -286,11 +289,15 @@ func TestMethodMux_Handle(t *testing.T) {
 	// Test default handler (func)
 	defaultFuncResult := "default func result"
 	defaultFuncCalled := false
+
 	mux.SetDefaultFunc(func(_ context.Context, req *Request) (any, error) {
 		defaultFuncCalled = true
+
 		assert.Equal(t, "anotherUnknown", req.Method)
+
 		return defaultFuncResult, nil
 	})
+
 	reqAnotherUnknown := &Request{Method: "anotherUnknown"}
 	res, err = mux.Handle(ctx, reqAnotherUnknown)
 	require.NoError(t, err, "Handle should not return an error when default func handler succeeds")

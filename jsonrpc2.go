@@ -133,9 +133,9 @@ var nullValue = json.RawMessage("null") // Represents the JSON `null` value.
 //	}
 var Marshal = json.Marshal
 
-// Unmarshal defines the function used for unmarshaling JSON []byte into Go types.
+// Unmarshal defines the function used for unmarshalling JSON []byte into Go types.
 // By default, it uses [encoding/json.Unmarshal]. Applications can replace this
-// variable *at startup* with a different unmarshaling function.
+// variable *at startup* with a different unmarshalling function.
 //
 // The replacement function must have the same signature as `json.Unmarshal`.
 // Ensure the replacement is compatible with the JSON-RPC 2.0 specification
