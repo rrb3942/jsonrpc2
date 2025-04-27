@@ -17,7 +17,11 @@ var ErrInvalidParamsType = errors.New("jsonrpc2: params must marshal to a JSON o
 // a JSON object or array, returning a Params struct or an error.
 // If v is nil, it returns empty Params{} and no error, signifying omitted parameters.
 func makeParamsFromAny(v any) (Params, error) {
-	if v == nil {
+	switch vt := v.(type) {
+	// If passed Params used them transparantley
+	case Params:
+		return vt, nil
+	case nil:
 		// If the input is nil, treat it as omitted parameters (valid in JSON-RPC 2.0).
 		// Return the zero value for Params and no error.
 		return Params{}, nil
@@ -88,6 +92,7 @@ func (c *Client) Close() {
 // It automatically assigns a request ID and waits for the server's response.
 // If a default timeout is set via SetDefaultTimeout, it will be applied to the call.
 // The `params` argument can be any Go type that marshals to a JSON object or array,
+// a prepoulated [Params],
 // or nil to omit parameters. If `params` marshals to anything else, an error
 // wrapping [ErrInvalidParamsType] is returned.
 // Returns the server's [*Response] or an error if the call fails (including potential
@@ -113,6 +118,7 @@ func (c *Client) Call(ctx context.Context, method string, params any) (*Response
 // It does not wait for a server response.
 // If a default timeout is set via SetDefaultTimeout, it will be applied to the notification attempt.
 // The `params` argument can be any Go type that marshals to a JSON object or array,
+// a prepoulated [Params],
 // or nil to omit parameters. If `params` marshals to anything else, an error
 // wrapping [ErrInvalidParamsType] is returned.
 // Returns an error only if sending the notification fails (including potential retries).
