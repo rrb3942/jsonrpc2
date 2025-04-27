@@ -116,11 +116,13 @@ func dialTLS(ctx context.Context, network, addr string) (*TransportClient, error
 // Dial is a convenience function that establishes a connection to the destination URI
 // and returns a [*Client] ready for making simplified RPC calls.
 //
-// It internally creates a [ClientPool] configured with AcquireOnCreate=true,
-// ensuring the connection is established and validated during the dial process.
-// The underlying connection management and retries are handled by the pool.
+// It internally creates a [ClientPool] using default settings, but explicitly sets
+// AcquireOnCreate=true to ensure the connection is established and validated
+// immediately during the dial process. The underlying connection management
+// and retries are handled by the pool.
 //
-// See [DialTransport] for details on supported URI schemes and behavior.
+// Use [DialWithConfig] for more control over pool settings like timeouts and size.
+// See [DialTransport] for details on supported URI schemes.
 //
 // Example:
 //
@@ -149,23 +151,25 @@ func Dial(ctx context.Context, destURI string) (*Client, error) {
 // and returns a [*Client] ready for making simplified RPC calls.
 //
 // It's similar to [Dial] but allows customization of the underlying connection
-// pool's behavior (e.g., timeouts, size, retries) via the `config` parameter.
+// pool's behavior (e.g., timeouts, size, retries, AcquireOnCreate) via the `config` parameter.
 // The `URI` field within the provided `config` specifies the destination address.
 //
-// This function *always* sets `config.AcquireOnCreate` to `true` before creating
-// the pool, ensuring the connection is established and validated during the dial
-// process, regardless of the initial value in the passed `config`.
+// Unlike [Dial], this function respects the `AcquireOnCreate` setting within the
+// provided `config`. If true, the connection is validated immediately. If false,
+// connection attempts are deferred until the first RPC call.
 //
 // See [DialTransport] for details on supported URI schemes specified in `config.URI`.
 //
 // Example:
 //
+//	// Example: Dial with custom settings, deferring initial connection.
 //	customConfig := jsonrpc2.ClientPoolConfig{
-//	    URI:         "tcp:localhost:9090",
-//	    MaxSize:     5,
-//	    IdleTimeout: 2 * time.Minute,
-//	    Retries:     3,
-//	    DialTimeout: 10 * time.Second,
+//	    URI:             "tcp:localhost:9090",
+//	    MaxSize:         5,
+//	    IdleTimeout:     2 * time.Minute,
+//	    Retries:         3,
+//	    DialTimeout:     10 * time.Second,
+//	    AcquireOnCreate: false, // Defer connection until first call
 //	}
 //	bc, err := jsonrpc2.DialWithConfig(context.Background(), customConfig)
 //	if err != nil {
@@ -177,10 +181,8 @@ func Dial(ctx context.Context, destURI string) (*Client, error) {
 //	err = bc.Call(context.Background(), "echo", jsonrpc2.NewParamsArray("hello"), &result)
 //	// ... handle result/error ...
 func DialWithConfig(ctx context.Context, config ClientPoolConfig) (*Client, error) {
-	// Ensure AcquireOnCreate is true for dial semantics, overriding user setting if necessary.
-	config.AcquireOnCreate = true
-
 	// Create the pool using the provided config and the default DialTransport function.
+	// NewClientPool will respect the AcquireOnCreate setting within the config.
 	pool, err := NewClientPool(ctx, config)
 	if err != nil {
 		return nil, err // Failed to create pool (likely connection failure)
