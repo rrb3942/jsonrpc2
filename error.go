@@ -33,8 +33,8 @@ var (
 //nolint:govet // Field order matches spec examples for clarity, not strict requirement.
 type Error struct {
 	present bool      // Internal flag to distinguish zero value from explicitly set error.
-	Code    int64     `json:"code"`    // A number indicating the error type. Standard codes are predefined.
-	Message string    `json:"message"` // A string providing a short description of the error.
+	Code    int64     `json:"code"`                    // A number indicating the error type. Standard codes are predefined.
+	Message string    `json:"message"`                 // A string providing a short description of the error.
 	Data    ErrorData `json:"data,omitempty,omitzero"` // Optional additional information about the error.
 }
 
@@ -132,8 +132,11 @@ func (e Error) WithData(data any) Error {
 //	}
 func (e Error) Is(t error) bool {
 	// Check if target is Error or *Error
-	var jerr Error
-	if errors.As(t, &jerr) {
+	switch jerr := t.(type) {
+	case Error:
+		// Compare codes only if both errors are considered 'present' (not zero value)
+		return e.present && jerr.present && e.Code == jerr.Code
+	case *Error:
 		// Compare codes only if both errors are considered 'present' (not zero value)
 		return e.present && jerr.present && e.Code == jerr.Code
 	}
@@ -168,9 +171,9 @@ func (e *Error) UnmarshalJSON(b []byte) error {
 	// Define a temporary struct matching the JSON structure.
 	// Use a pointer for ErrorData to detect its presence correctly.
 	var tmp struct {
-		Code    int64      `json:"code"`
-		Message string     `json:"message"`
-		Data    *ErrorData `json:"data,omitempty"` // Pointer to check presence
+		Data    ErrorData `json:"data,omitempty"`
+		Message string    `json:"message"`
+		Code    int64     `json:"code"`
 	}
 
 	// Unmarshal into the temporary struct using the package-level Unmarshal func.
@@ -182,13 +185,7 @@ func (e *Error) UnmarshalJSON(b []byte) error {
 	e.present = true // Mark as present/initialized.
 	e.Code = tmp.Code
 	e.Message = tmp.Message
-	if tmp.Data != nil {
-		// If data was present in JSON, copy it.
-		e.Data = *tmp.Data
-	} else {
-		// If data was not present, ensure Data is its zero value.
-		e.Data = ErrorData{}
-	}
+	e.Data = tmp.Data
 
 	return nil
 }
