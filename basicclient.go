@@ -7,60 +7,74 @@ import (
 	"time"
 )
 
-// BasicClient represents a client connection to a remote jsonrpc2 server.
-// It may be used to make calls against a server and retrieve their responses.
+// BasicClient provides a simplified interface for making JSON-RPC 2.0 calls
+// to a server. It wraps a [ClientPool] (configured with MaxSize=1) to manage
+// the underlying connection and automatically handles request IDs.
 //
-// It offers a simplified API that internally manages [ID], with no ability to send batches.
+// It does not support sending batch requests. Use [Client] or [ClientPool] directly
+// for batching capabilities.
 //
-// If [Params] are empty (Params{}), they are not included in the request/notification.
+// Use [DialBasic] to create instances connected to a server URI.
 //
-// BasicClient is goroutine-safe but only operates on a single connection/stream.
+// BasicClient is goroutine-safe.
 type BasicClient struct {
-	client *Client
-	id     uint32
+	pool           *ClientPool
+	id             uint32
+	defaultTimeout time.Duration
 }
 
-// NewBasicClient returns a new [BasicClient] wrapping an the provided [Encoder] and [Decoder].
-func NewBasicClient(e Encoder, d Decoder) *BasicClient {
-	//nolint:gosec // We just want to avoid always starting at 0
-	return &BasicClient{client: NewClient(e, d), id: rand.Uint32()}
+// SetDefaultTimeout sets a default timeout duration for all subsequent Call and Notify
+// operations made through this BasicClient. If the duration `d` is greater than zero,
+// a context with this timeout will be derived from the context passed to Call/Notify.
+// If `d` is zero or negative, no default timeout is applied, and the original context's
+// deadline (if any) is used.
+func (c *BasicClient) SetDefaultTimeout(d time.Duration) {
+	c.defaultTimeout = d
 }
 
-// NewBasicClient returns a new [BasicClient] wrapping an the provided [io.ReadWriter].
-func NewBasicClientIO(rw io.ReadWriter) *BasicClient {
-	//nolint:gosec // We just want to avoid always starting at 0
-	return &BasicClient{client: NewClientIO(rw), id: rand.Uint32()}
+// Close closes the underlying connection pool.
+// Calls to the BasicClient should not be made after Close has been called.
+func (c *BasicClient) Close() {
+	c.pool.Close()
 }
 
-// Close closes the underlying [Client]
-//
-// Calls to [BasicClient] should not be made after Close has been called.
-func (c *BasicClient) Close() error {
-	return c.client.Close()
-}
-
-// Call calls the given method over the configured stream and returns the [*Response].
+// Call sends a JSON-RPC request for the given method with the provided parameters.
+// It automatically assigns a request ID and waits for the server's response.
+// If a default timeout is set via SetDefaultTimeout, it will be applied to the call.
+// Returns the server's [*Response] or an error if the call fails (including potential
+// retries managed by the underlying pool).
 func (c *BasicClient) Call(ctx context.Context, method string, params Params) (*Response, error) {
-	id := c.id
-	id++
+	// Apply default timeout if set
+	if c.defaultTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.defaultTimeout)
+		defer cancel()
+	}
 
-	return c.client.Call(ctx, NewRequestWithParams(int64(id), method, params))
+	// Atomically increment and get the next ID.
+	// Note: While the pool handles concurrency, atomic ID ensures uniqueness
+	// if multiple goroutines use the *same* BasicClient instance, matching original intent.
+	// However, with pool size 1, this is less critical. Consider removing if simplifying further.
+	// For now, keep it for behavioral consistency.
+	// TODO: Re-evaluate atomic ID necessity with pool size 1.
+	nextID := atomic.AddUint32(&c.id, 1)
+
+	req := NewRequestWithParams(int64(nextID), method, params)
+	return c.pool.Call(ctx, req)
 }
 
-// CallWithTimeout behaves the same as [BasicClient.Call] but also accepts a timeout for the request.
-func (c *BasicClient) CallWithTimeout(ctx context.Context, timeout time.Duration, method string, params Params) (*Response, error) {
-	id := c.id
-	id++
-
-	return c.client.CallWithTimeout(ctx, timeout, NewRequestWithParams(int64(id), method, params))
-}
-
-// Notify sends the given method as a notification, not waiting for a response.
+// Notify sends a JSON-RPC notification for the given method with the provided parameters.
+// It does not wait for a server response.
+// If a default timeout is set via SetDefaultTimeout, it will be applied to the notification attempt.
+// Returns an error only if sending the notification fails (including potential retries).
 func (c *BasicClient) Notify(ctx context.Context, method string, params Params) error {
-	return c.client.Notify(ctx, NewNotificationWithParams(method, params))
-}
+	// Apply default timeout if set
+	if c.defaultTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.defaultTimeout)
+		defer cancel()
+	}
 
-// NotifyWithTimeout behaves the same as [BasicClient.Notify] but also accepts a timeout for the notification.
-func (c *BasicClient) NotifyWithTimeout(ctx context.Context, timeout time.Duration, method string, params Params) error {
-	return c.client.NotifyWithTimeout(ctx, timeout, NewNotificationWithParams(method, params))
+	notif := NewNotificationWithParams(method, params)
+	return c.pool.Notify(ctx, notif)
 }
