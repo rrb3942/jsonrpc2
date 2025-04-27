@@ -62,7 +62,7 @@ func findUnusedPort(t *testing.T) string {
 	return "127.0.0.1:65534" // A common high port unlikely to be in use
 }
 
-func TestDial(t *testing.T) {
+func TestDialTransport(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
@@ -81,7 +81,7 @@ func TestDial(t *testing.T) {
 			}
 		}()
 
-		client, err := Dial(ctx, "tcp:"+addr)
+		client, err := DialTransport(ctx, "tcp:"+addr)
 		require.NoError(t, err)
 		require.NotNil(t, client)
 		assert.ErrorIs(t, client.Close(), net.ErrClosed)
@@ -89,7 +89,7 @@ func TestDial(t *testing.T) {
 
 	t.Run("TCP_Failure_Refused", func(t *testing.T) {
 		addr := findUnusedPort(t)
-		_, err := Dial(ctx, "tcp:"+addr)
+		_, err := DialTransport(ctx, "tcp:"+addr)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "connection refused", "Expected connection refused error")
 	})
@@ -99,7 +99,7 @@ func TestDial(t *testing.T) {
 	t.Run("UDP_Success", func(t *testing.T) {
 		// Dialing UDP to a random port usually succeeds immediately.
 		addr := findFreePort(t) // Get a valid address format
-		client, err := Dial(ctx, "udp:"+addr)
+		client, err := DialTransport(ctx, "udp:"+addr)
 		require.NoError(t, err)
 		require.NotNil(t, client)
 		// UDP doesn't have a persistent connection in the same way TCP does,
@@ -108,7 +108,7 @@ func TestDial(t *testing.T) {
 	})
 
 	t.Run("UDP_Failure_InvalidAddr", func(t *testing.T) {
-		_, err := Dial(ctx, "udp:invalid-address:!!")
+		_, err := DialTransport(ctx, "udp:invalid-address:!!")
 		require.Error(t, err)
 	})
 
@@ -132,7 +132,7 @@ func TestDial(t *testing.T) {
 			}
 		}()
 
-		client, err := Dial(ctx, "unix://"+sockPath)
+		client, err := DialTransport(ctx, "unix://"+sockPath)
 		require.NoError(t, err)
 		require.NotNil(t, client)
 		assert.ErrorIs(t, client.Close(), net.ErrClosed)
@@ -145,7 +145,7 @@ func TestDial(t *testing.T) {
 
 		tmpDir := t.TempDir()
 		sockPath := filepath.Join(tmpDir, "nonexistent.sock")
-		_, err := Dial(ctx, "unix://"+sockPath)
+		_, err := DialTransport(ctx, "unix://"+sockPath)
 		require.Error(t, err)
 		// Check if the error is related to "no such file or directory"
 		assert.ErrorContains(t, err, "no such file or directory")
@@ -153,14 +153,14 @@ func TestDial(t *testing.T) {
 
 	// --- HTTP Tests ---
 	t.Run("HTTP_Success", func(t *testing.T) {
-		// We don't need a real server, just need Dial to create the HTTPBridge client
+		// We don't need a real server, just need DialTransport to create the HTTPBridge client
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			// No need to actually handle RPC, just need the server running
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()
 
-		client, err := Dial(ctx, server.URL) // Use the test server's URL
+		client, err := DialTransport(ctx, server.URL) // Use the test server's URL
 		require.NoError(t, err)
 		require.NotNil(t, client)
 		// Check if the underlying encoder/decoder is an HTTPBridge
@@ -173,7 +173,7 @@ func TestDial(t *testing.T) {
 	})
 
 	t.Run("HTTP_Failure_InvalidURL", func(t *testing.T) {
-		_, err := Dial(ctx, "http://invalid host") // Space in host is invalid
+		_, err := DialTransport(ctx, "http://invalid host") // Space in host is invalid
 		require.Error(t, err)
 
 		var urlErr *url.Error
@@ -184,14 +184,14 @@ func TestDial(t *testing.T) {
 	// --- TLS Tests (Connection Refused Only) ---
 	t.Run("TLS_Failure_Refused", func(t *testing.T) {
 		addr := findUnusedPort(t)
-		_, err := Dial(ctx, "tls:"+addr)
+		_, err := DialTransport(ctx, "tls:"+addr)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "connection refused", "Expected connection refused error for tls")
 	})
 
 	t.Run("TLS4_Failure_Refused", func(t *testing.T) {
 		addr := findUnusedPort(t)
-		_, err := Dial(ctx, "tls4:"+addr)
+		_, err := DialTransport(ctx, "tls4:"+addr)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "connection refused", "Expected connection refused error for tls4")
 	})
@@ -206,9 +206,9 @@ func TestDial(t *testing.T) {
 
 		addrV6 := net.JoinHostPort(host, port)
 
-		_, err := Dial(ctx, "tls6:"+addrV6)
+		_, err := DialTransport(ctx, "tls6:"+addrV6)
 		// Note: This might fail differently if IPv6 isn't properly configured on the host.
-		// The primary goal is to test the Dial logic routes to dialTLS and fails.
+		// The primary goal is to test the DialTransport logic routes to dialTLS and fails.
 		// Connection refused is the most likely error if the port is unused.
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "connection refused", "Expected connection refused error for tls6")
@@ -216,14 +216,14 @@ func TestDial(t *testing.T) {
 
 	// --- Invalid Scheme ---
 	t.Run("InvalidScheme", func(t *testing.T) {
-		_, err := Dial(ctx, "invalid:scheme")
+		_, err := DialTransport(ctx, "invalid:scheme")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrUnknownScheme)
 	})
 
 	// --- Invalid URI Format ---
 	t.Run("InvalidURI", func(t *testing.T) {
-		_, err := Dial(ctx, "::") // Invalid URI format
+		_, err := DialTransport(ctx, "::") // Invalid URI format
 		require.Error(t, err)
 
 		var urlErr *url.Error
@@ -237,7 +237,7 @@ func TestDial(t *testing.T) {
 		cancel() // Cancel immediately
 
 		addr := findFreePort(t) // Need a valid target address format
-		_, err := Dial(cctx, "tcp:"+addr)
+		_, err := DialTransport(cctx, "tcp:"+addr)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, context.Canceled)
 	})
@@ -249,7 +249,7 @@ func TestDial(t *testing.T) {
 		time.Sleep(1 * time.Millisecond) // Ensure deadline passes
 
 		addr := "tcp:192.0.2.1:12345" // Use a blackhole address to ensure dial hangs until deadline
-		_, err := Dial(dctx, addr)
+		_, err := DialTransport(dctx, addr)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, context.DeadlineExceeded)
 	})

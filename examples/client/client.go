@@ -19,7 +19,7 @@ func run() int {
 	destURI := flag.String("dest", "tcp:127.0.0.1:9090", "Network address of the server in form of PROTO:IP:PORT. Maybe also be an HTTP URL.")
 	flag.Parse()
 
-	client, err := jsonrpc2.DialBasic(shutdownCtx, *destURI)
+	client, err := jsonrpc2.Dial(shutdownCtx, *destURI)
 
 	if err != nil {
 		log.Println(err)
@@ -28,7 +28,7 @@ func run() int {
 
 	defer client.Close()
 
-	resp, err := client.Call(shutdownCtx, *method, jsonrpc2.Params{})
+	resp, err := client.Call(shutdownCtx, *method, nil)
 
 	if err != nil {
 		log.Println(err)

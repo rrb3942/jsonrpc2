@@ -34,7 +34,7 @@ import (
 //
 // Returns [ErrUnknownScheme] if the scheme is not supported.
 // Other errors may be returned from underlying network or TLS dialers, or URL parsing.
-func Dial(ctx context.Context, destURI string) (*TransportClient, error) {
+func DialTransport(ctx context.Context, destURI string) (*TransportClient, error) {
 	uri, err := url.Parse(destURI)
 
 	if err != nil {
@@ -112,18 +112,18 @@ func dialTLS(ctx context.Context, network, addr string) (*TransportClient, error
 	return NewTransportClientIO(conn), nil
 }
 
-// DialBasic is a convenience function that establishes a connection to the destination URI
-// and returns a [*BasicClient] ready for making simplified RPC calls.
+// Dial is a convenience function that establishes a connection to the destination URI
+// and returns a [*Client] ready for making simplified RPC calls.
 //
 // It internally creates a [ClientPool] configured with AcquireOnCreate=true,
 // ensuring the connection is established and validated during the dial process.
 // The underlying connection management and retries are handled by the pool.
 //
-// See [Dial] for details on supported URI schemes and behavior.
+// See [DialTransport] for details on supported URI schemes and behavior.
 //
 // Example:
 //
-//	bc, err := jsonrpc2.DialBasic(context.Background(), "tcp:localhost:9090")
+//	bc, err := jsonrpc2.Dial(context.Background(), "tcp:localhost:9090")
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
@@ -133,9 +133,8 @@ func dialTLS(ctx context.Context, network, addr string) (*TransportClient, error
 //	var result string
 //	err = bc.Call(context.Background(), "echo", jsonrpc2.NewParamsArray("hello"), &result)
 //	// ... handle result/error ...
-func DialBasic(ctx context.Context, destURI string) (*BasicClient, error) {
-	// Configure a pool specifically for BasicClient:
-	// - MaxSize: 1, as BasicClient represents a single logical connection.
+func Dial(ctx context.Context, destURI string) (*Client, error) {
+	// Configure a pool specifically for Client:
 	// - AcquireOnCreate: true, to validate the connection immediately.
 	// - Use default timeouts/retries unless further configuration is added here.
 	config := ClientPoolConfig{
@@ -150,8 +149,8 @@ func DialBasic(ctx context.Context, destURI string) (*BasicClient, error) {
 		return nil, err // Failed to create pool (likely connection failure)
 	}
 
-	// Wrap the pool in a BasicClient.
-	bc := &BasicClient{pool: pool}
+	// Wrap the pool in a Client.
+	bc := &Client{pool: pool}
 	// Initialize the atomic ID with a random starting value.
 	//nolint:gosec // We just want to avoid always starting at 0
 	bc.id.Store(rand.Uint32())

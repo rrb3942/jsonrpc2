@@ -75,7 +75,7 @@ type ClientPool struct {
 	mu      sync.Mutex                     // Protects access to closed flag and idle timer
 }
 
-// NewClientPool creates a new [ClientPool] using the default [Dial] function.
+// NewClientPool creates a new [ClientPool] using the default [DialTransport] function.
 // It connects to the server specified in [ClientPoolConfig.URI].
 //
 // If [ClientPoolConfig.AcquireOnCreate] is true, it attempts to establish an initial
@@ -96,8 +96,8 @@ type ClientPool struct {
 //	defer pool.Close()
 //	// Use pool.Call(), pool.Notify(), etc.
 func NewClientPool(nctx context.Context, config ClientPoolConfig) (*ClientPool, error) {
-	// Delegates to NewClientPoolWithDialer using the default Dial function.
-	return NewClientPoolWithDialer(nctx, config, Dial)
+	// Delegates to NewClientPoolWithDialer using the default DialTransport function.
+	return NewClientPoolWithDialer(nctx, config, DialTransport)
 }
 
 // NewClientPoolWithDialer creates a new [ClientPool] using a custom dialer function.

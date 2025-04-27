@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// ErrInvalidParamsType indicates that the provided params argument to BasicClient.Call or BasicClient.Notify
+// ErrInvalidParamsType indicates that the provided params argument to Client.Call or Client.Notify
 // did not marshal into a JSON object or array as required by the JSON-RPC 2.0 specification.
 var ErrInvalidParamsType = errors.New("jsonrpc2: params must marshal to a JSON object or array")
 
@@ -37,34 +37,34 @@ func makeParamsFromAny(v any) (Params, error) {
 	return NewParamsRaw(json.RawMessage(raw)), nil
 }
 
-// BasicClient provides a simplified interface for making JSON-RPC 2.0 calls
+// Client provides a simplified interface for making JSON-RPC 2.0 calls
 // to a server. It wraps a [ClientPool] to manage
 // the underlying connection and automatically handles request IDs.
 //
-// It does not support sending batch requests. Use [Client] or [ClientPool] directly
+// It does not support sending batch requests. Use [TransportClient] or [ClientPool] directly
 // for batching capabilities.
 //
-// Use [DialBasic] to create instances connected to a server URI.
+// Use [Dial] to create instances connected to a server URI.
 //
-// BasicClient is goroutine-safe.
-type BasicClient struct {
+// Client is goroutine-safe.
+type Client struct {
 	pool           *ClientPool
 	id             atomic.Uint32 // Use atomic type for thread-safe ID generation.
 	defaultTimeout time.Duration
 }
 
 // SetDefaultTimeout sets a default timeout duration for all subsequent Call and Notify
-// operations made through this BasicClient. If the duration `d` is greater than zero,
+// operations made through this Client. If the duration `d` is greater than zero,
 // a context with this timeout will be derived from the context passed to Call/Notify.
 // If `d` is zero or negative, no default timeout is applied, and the original context's
 // deadline (if any) is used.
-func (c *BasicClient) SetDefaultTimeout(d time.Duration) {
+func (c *Client) SetDefaultTimeout(d time.Duration) {
 	c.defaultTimeout = d
 }
 
 // Close closes the underlying connection pool.
-// Calls to the BasicClient should not be made after Close has been called.
-func (c *BasicClient) Close() {
+// Calls to the Client should not be made after Close has been called.
+func (c *Client) Close() {
 	c.pool.Close()
 }
 
@@ -76,7 +76,7 @@ func (c *BasicClient) Close() {
 // wrapping [ErrInvalidParamsType] is returned.
 // Returns the server's [*Response] or an error if the call fails (including potential
 // retries managed by the underlying pool).
-func (c *BasicClient) Call(ctx context.Context, method string, params any) (*Response, error) {
+func (c *Client) Call(ctx context.Context, method string, params any) (*Response, error) {
 	// Validate and convert params
 	reqParams, err := makeParamsFromAny(params)
 	if err != nil {
@@ -85,7 +85,7 @@ func (c *BasicClient) Call(ctx context.Context, method string, params any) (*Res
 
 	// Atomically increment and get the next ID.
 	// Note: While the pool handles concurrency, atomic ID ensures uniqueness
-	// if multiple goroutines use the *same* BasicClient instance, matching original intent.
+	// if multiple goroutines use the *same* Client instance, matching original intent.
 	// However, with pool size 1, this is less critical. Consider removing if simplifying further.
 	// For now, keep it for behavioral consistency.
 	// TODO: Re-evaluate atomic ID necessity with pool size 1.
@@ -107,7 +107,7 @@ func (c *BasicClient) Call(ctx context.Context, method string, params any) (*Res
 // or nil to omit parameters. If `params` marshals to anything else, an error
 // wrapping [ErrInvalidParamsType] is returned.
 // Returns an error only if sending the notification fails (including potential retries).
-func (c *BasicClient) Notify(ctx context.Context, method string, params any) error {
+func (c *Client) Notify(ctx context.Context, method string, params any) error {
 	// Validate and convert params
 	notifyParams, err := makeParamsFromAny(params)
 	if err != nil {
