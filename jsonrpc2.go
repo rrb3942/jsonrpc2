@@ -79,17 +79,19 @@
 //		defer cancel()
 //
 //		// DialBasic establishes the connection and creates a basic client.
-//		client, err := jsonrpc2.Dial(ctx, "tcp:localhost:9090")
+//		client, err := jsonrpc2.DialBasic(ctx, "tcp:localhost:9090")
 //		if err != nil {
 //			log.Fatalf("Failed to dial server: %v", err)
 //		}
 //		defer client.Close() // Important to close the client connection
 //
+//		client.SetDefaultTimeout(5 * time.Second)
+//
 //		params := map[string]string{"message": "hello world"}
 //		var result map[string]string // Variable to hold the result
 //
 //		// Call the "echo" method on the server
-//		response, err = client.Call(ctx, NewRequestWithParams(int64(1), "echo", NewParamsObject(params))
+//		response, err = client.Call(ctx, "echo", params)
 //		if err != nil {
 //			log.Fatalf("RPC call failed: %v", err)
 //		}
