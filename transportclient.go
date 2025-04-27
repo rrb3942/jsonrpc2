@@ -12,13 +12,15 @@ import (
 // TransportClient provides methods for making JSON-RPC 2.0 calls to a remote server
 // over a single underlying connection or stream.
 //
+// Most users will want to use [Client] instead.
+//
 // A TransportClient instance manages encoding requests and decoding responses.
 // It is goroutine-safe, meaning multiple goroutines can make calls concurrently
 // using the same TransportClient instance. However, all calls are serialized over the
 // single underlying transport managed by the associated [Encoder] and [Decoder].
 // For concurrent connections, consider using a [TransportClientPool].
 //
-// Use [Dial], [NewTransportClient], or [NewTransportClientIO] to create instances.
+// Use [DialTransport], [NewTransportClient], or [NewTransportClientIO] to create instances.
 type TransportClient struct {
 	e  Encoder
 	d  Decoder
