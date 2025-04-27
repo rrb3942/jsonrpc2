@@ -41,9 +41,6 @@ func makeParamsFromAny(v any) (Params, error) {
 // to a server. It wraps a [ClientPool] to manage
 // the underlying connection and automatically handles request IDs.
 //
-// It does not support sending batch requests. Use [TransportClient] or [ClientPool] directly
-// for batching capabilities.
-//
 // Use [Dial] to create instances connected to a server URI.
 //
 // Client is goroutine-safe.
