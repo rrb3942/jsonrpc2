@@ -36,7 +36,7 @@ var (
 //     in the order received. If false (default), processes them concurrently using goroutines.
 //   - NoRoutines: If true, processes each incoming request or batch synchronously within
 //     the main [RPCServer.Run] loop. If false (default), spawns a new goroutine for each
-//     request or batch (unless SerialBatch is true for batches).
+//     request or batch. Batch members may still be processed concurrently based on SerialBatch.
 //   - WaitOnClose: If true, when [RPCServer.Run] is shutting down (due to context
 //     cancellation or connection error), it waits for all active request-handling
 //     goroutines to complete before returning. If false (default), it cancels the
@@ -47,7 +47,7 @@ var (
 // Within the [Handler.Handle] method, the context will contain:
 //   - [CtxRPCServer]: The [*RPCServer] instance handling the request.
 //   - [CtxFromAddr]: For packet-based servers ([NewPacketServer]), the sender's [net.Addr].
-//   - Other values from the parent context passed to [RPCServer.Run] or added by a [Binder].
+//   - Other values from the parent context passed to [RPCServer.Run].
 type RPCServer struct {
 	// Callbacks provides hooks for customizing server behavior on events like errors or panics.
 	// See the [Callbacks] type documentation for details on available hooks.
@@ -59,11 +59,11 @@ type RPCServer struct {
 	encoder PacketEncoder // Internal encoder (stream or packet).
 	// SerialBatch controls whether requests within a JSON-RPC batch array ([])
 	// are processed sequentially (true) or concurrently using goroutines (false).
-	// Default is false (concurrent). This setting has no effect if NoRoutines is true.
+	// Default is false (concurrent).
 	SerialBatch bool
 	// NoRoutines controls whether each incoming request or batch is processed
 	// synchronously within the main server loop (true) or in its own goroutine (false).
-	// Default is false (use goroutines). If true, SerialBatch is implicitly true.
+	// Default is false (use goroutines).
 	NoRoutines bool
 	// WaitOnClose determines the shutdown behavior when Run exits.
 	// If true, Run waits for all active request goroutines to complete before returning.
@@ -157,8 +157,8 @@ func NewStreamServerFromIO(rw io.ReadWriter, handler Handler) *RPCServer {
 //	decoder := jsonrpc2.NewPacketDecoder(conn)
 //	encoder := jsonrpc2.NewPacketEncoder(conn)
 //	server := jsonrpc2.NewPacketServer(decoder, encoder, mux)
-//	// server.PacketRoutines = 4 // Optional: Usually set on jsonrpc2.Server
 //	// Run the server...
+//	err := server.Runc(ctx)
 func NewPacketServer(d PacketDecoder, e PacketEncoder, handler Handler) *RPCServer {
 	return newRPCServer(d, e, handler)
 }
@@ -247,6 +247,7 @@ func (rp *RPCServer) runRequest(ctx context.Context, r json.RawMessage, from net
 // generated responses as a JSON array.
 func (rp *RPCServer) runRequests(ctx context.Context, raw json.RawMessage, from net.Addr) {
 	var objs []json.RawMessage
+
 	var resps []any
 
 	// Split into individual objects
@@ -363,10 +364,6 @@ func (rp *RPCServer) Close() error {
 // occurs during decoding (like [io.EOF] or a connection error), or a fatal
 // JSON syntax error is encountered on a stream-based transport.
 //
-// For each valid incoming JSON message (object or array), it calls the internal
-// `run` method. Depending on the `NoRoutines` setting, `run` might be executed
-// synchronously or in a new goroutine.
-//
 // Error Handling:
 //   - [io.EOF] or context cancellation errors generally indicate a clean shutdown
 //     and are returned after cleanup.
@@ -379,11 +376,11 @@ func (rp *RPCServer) Close() error {
 //
 // Shutdown:
 // When Run exits, it performs cleanup:
-// 1. Waits for active goroutines according to `WaitOnClose`.
-// 2. Cancels the internal server context (`sctx`).
-// 3. Calls [RPCServer.Close] to close the underlying encoder/decoder if possible.
-// 4. Calls the [Callbacks.OnExit] callback.
-// 5. Returns any error encountered during shutdown or the initial error causing exit, joined together.
+//  1. Waits for active goroutines according to `WaitOnClose`.
+//  2. Cancels the internal server context (`sctx`).
+//  3. Calls [RPCServer.Close] to close the underlying encoder/decoder if possible.
+//  4. Calls the [Callbacks.OnExit] callback.
+//  5. Returns any error encountered during shutdown or the initial error causing exit, joined together.
 func (rp *RPCServer) Run(ctx context.Context) (err error) {
 	var wg sync.WaitGroup
 
@@ -396,9 +393,9 @@ func (rp *RPCServer) Run(ctx context.Context) (err error) {
 		// Manage shutdown sequence based on WaitOnClose.
 		if rp.WaitOnClose {
 			wg.Wait() // Wait for handlers first.
-			stop()     // Then cancel context.
+			stop()    // Then cancel context.
 		} else {
-			stop()     // Cancel context first.
+			stop()    // Cancel context first.
 			wg.Wait() // Then wait for handlers.
 		}
 
@@ -413,6 +410,7 @@ func (rp *RPCServer) Run(ctx context.Context) (err error) {
 	// Main loop: Read and process messages.
 	for {
 		var from net.Addr
+
 		var buf json.RawMessage
 
 		// Decode the next message. DecodeFrom handles context cancellation/timeouts internally.
@@ -422,8 +420,7 @@ func (rp *RPCServer) Run(ctx context.Context) (err error) {
 			// Handle specific JSON parsing errors.
 			if errors.As(err, &errSyntax) {
 				// Send Parse Error response.
-				resp := NewResponseError(ErrParseError.WithData(err.Error()))
-				_ = rp.encoder.EncodeTo(sctx, resp, from) // Use sctx for encoding attempt.
+				_ = rp.encoder.EncodeTo(sctx, NewResponseError(ErrParseError.WithData(err.Error())), from) // Use sctx for encoding attempt.
 				rp.Callbacks.runOnDecodingError(sctx, buf, err)
 
 				// For stream decoders, a syntax error corrupts the stream, so we must exit.
@@ -432,17 +429,18 @@ func (rp *RPCServer) Run(ctx context.Context) (err error) {
 				}
 				// For packet decoders, we can potentially recover and process the next packet.
 				err = nil // Clear error to continue loop.
+
 				continue
 			}
 
 			if errors.As(err, &errJSONType) {
 				// Send Invalid Request error response.
-				resp := NewResponseError(ErrInvalidRequest.WithData(err.Error()))
-				_ = rp.encoder.EncodeTo(sctx, resp, from)
+				_ = rp.encoder.EncodeTo(sctx, NewResponseError(ErrInvalidRequest.WithData(err.Error())), from)
 				rp.Callbacks.runOnDecodingError(sctx, buf, err)
 
 				// Type errors usually don't corrupt the stream/packet flow, so continue.
 				err = nil // Clear error to continue loop.
+
 				continue
 			}
 
@@ -460,6 +458,7 @@ func (rp *RPCServer) Run(ctx context.Context) (err error) {
 			rp.run(sctx, buf, from) // Run synchronously in the loop.
 		} else {
 			wg.Add(1)
+
 			go func(gctx context.Context, gbuf json.RawMessage, gfrom net.Addr) {
 				defer wg.Done()
 				rp.run(gctx, gbuf, gfrom) // Run in a goroutine with the server context.
