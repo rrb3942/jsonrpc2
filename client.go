@@ -43,10 +43,24 @@ func makeParamsFromAny(v any) (Params, error) {
 //
 // Use [Dial] to create instances connected to a server URI.
 //
+// poolClientInterface defines the subset of ClientPool methods used by Client.
+// This allows mocking the pool for testing.
+type poolClientInterface interface {
+	Call(ctx context.Context, req *Request) (*Response, error)
+	CallWithTimeout(ctx context.Context, timeout time.Duration, req *Request) (*Response, error)
+	Notify(ctx context.Context, notif *Notification) error
+	NotifyWithTimeout(ctx context.Context, timeout time.Duration, notif *Notification) error
+	CallBatch(ctx context.Context, batch Batch[*Request]) (Batch[*Response], error)
+	CallBatchWithTimeout(ctx context.Context, timeout time.Duration, batch Batch[*Request]) (Batch[*Response], error)
+	NotifyBatch(ctx context.Context, batch Batch[*Notification]) error
+	NotifyBatchWithTimeout(ctx context.Context, timeout time.Duration, batch Batch[*Notification]) error
+	Close()
+}
+
 // Client is goroutine-safe.
 type Client struct {
-	pool           *ClientPool
-	id             atomic.Uint32 // Use atomic type for thread-safe ID generation.
+	pool           poolClientInterface // Use interface for testability
+	id             atomic.Uint32       // Use atomic type for thread-safe ID generation.
 	defaultTimeout time.Duration
 }
 
