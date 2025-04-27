@@ -221,3 +221,14 @@ func (b *Batch[B]) Delete(id ID) (B, bool) {
 
 	return deleted, true
 }
+
+// Reset clears all values from the batch and resets its length
+// to 0 while maintaining its capacity. This allows for efficient
+// reuse of batches.
+func (b *Batch[B]) Reset() {
+	// Clear all elements
+	clear((*b)[:cap(*b)])
+
+	// Reset length
+	*b = (*b)[:0]
+}

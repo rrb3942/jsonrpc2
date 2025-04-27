@@ -121,3 +121,31 @@ func (c *Client) Notify(ctx context.Context, method string, params any) error {
 
 	return c.pool.Notify(ctx, notif)
 }
+
+// and transmitted with [*BatchBuilder.Call()].
+func (c *Client) NewRequestBatch(size int) *BatchBuilder[*Request] {
+	return &BatchBuilder[*Request]{parent: c, Batch: NewBatch[*Request](size)}
+}
+
+// and transmitted with [*BatchBuilder.Call()].
+func (c *Client) NewNotificationBatch(size int) *BatchBuilder[*Request] {
+	return &BatchBuilder[*Request]{parent: c, Batch: NewBatch[*Request](size)}
+}
+
+// Helper function for BatchBuilder.
+func (c *Client) callBatch(ctx context.Context, batch Batch[*Request]) (Batch[*Response], error) {
+	if c.defaultTimeout > 0 {
+		return c.pool.CallBatchWithTimeout(ctx, c.defaultTimeout, batch)
+	}
+
+	return c.pool.CallBatch(ctx, batch)
+}
+
+// Helper function for BatchBuilder.
+func (c *Client) notifyBatch(ctx context.Context, batch Batch[*Notification]) error {
+	if c.defaultTimeout > 0 {
+		return c.pool.NotifyBatchWithTimeout(ctx, c.defaultTimeout, batch)
+	}
+
+	return c.pool.NotifyBatch(ctx, batch)
+}
