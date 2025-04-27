@@ -72,21 +72,21 @@ func NewHTTPHandler(handler Handler) *HTTPHandler {
 // It implements the [net/http.Handler] interface.
 //
 // The method performs the following steps:
-// 1. Checks if the request "Content-Type" is "application/json". Responds with 415 Unsupported Media Type if not.
-// 2. Sets the response "Content-Type" to "application/json".
-// 3. If MaxBytes > 0, wraps the request body with http.MaxBytesReader.
-// 4. Creates an internal, short-lived [RPCServer] configured with the handler's NewDecoder, NewEncoder, and Handler.
-//    This server runs synchronously (NoRoutines=true, SerialBatch=true) suitable for a single HTTP request/response cycle.
-// 5. Creates a new context derived from the request context, adding the *http.Request using the CtxHTTPRequest key.
-// 6. If a Binder is configured, calls its Bind method.
-// 7. Runs the internal RPCServer to process the request body.
-// 8. Handles potential errors:
-//    - EOF is ignored (normal end of request).
-//    - UnexpectedEOF (often malformed JSON) results in a JSON-RPC Parse Error response.
-//    - MaxBytesError results in a 413 Request Entity Too Large response.
-//    - Other errors result in a 500 Internal Server Error response.
-// 9. Writes the JSON-RPC response (if any) from the internal buffer to the http.ResponseWriter.
-// 10. If no response was generated (e.g., for Notifications), responds with 204 No Content.
+//  1. Checks if the request "Content-Type" is "application/json". Responds with 415 Unsupported Media Type if not.
+//  2. Sets the response "Content-Type" to "application/json".
+//  3. If MaxBytes > 0, wraps the request body with http.MaxBytesReader.
+//  4. Creates an internal, short-lived [RPCServer] configured with the handler's NewDecoder, NewEncoder, and Handler.
+//     This server runs synchronously (NoRoutines=true, SerialBatch=true) suitable for a single HTTP request/response cycle.
+//  5. Creates a new context derived from the request context, adding the *http.Request using the CtxHTTPRequest key.
+//  6. If a Binder is configured, calls its Bind method.
+//  7. Runs the internal RPCServer to process the request body.
+//  8. Handles potential errors:
+//     - EOF is ignored (normal end of request).
+//     - UnexpectedEOF (often malformed JSON) results in a JSON-RPC Parse Error response.
+//     - MaxBytesError results in a 413 Request Entity Too Large response.
+//     - Other errors result in a 500 Internal Server Error response.
+//  9. Writes the JSON-RPC response (if any) from the internal buffer to the http.ResponseWriter.
+//  10. If no response was generated (e.g., for Notifications), responds with 204 No Content.
 func (h *HTTPHandler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	// 1. Check Content-Type
 	if req.Header.Get("Content-Type") != "application/json" {
@@ -131,21 +131,22 @@ func (h *HTTPHandler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	// 8. Handle errors
 	// Ignore io.EOF which signifies a clean end of the request stream.
 	if err != nil && !errors.Is(err, io.EOF) {
-		// Check for specific error types to return appropriate HTTP status codes.
-		if errors.Is(err, io.ErrUnexpectedEOF) {
-			// Malformed JSON often results in UnexpectedEOF. Respond with JSON-RPC Parse Error.
-			// Clear the buffer first, as it might contain partial writes.
-			buffer.Reset()
+		switch {
+		// Check for maxbytes first, as it could also trigger UnexpectedEOF
+		case errors.As(err, &errMaxBytes):
+			// Request body exceeded the MaxBytes limit.
+			resp.WriteHeader(http.StatusRequestEntityTooLarge)
+			return // Stop processing, header already sent.
+		case errors.Is(err, io.ErrUnexpectedEOF):
+			// We may have some writes to buffer here, but those writes are for fully parsed objects.
+			// It is unclear if we should drop those responses or respond with what we have plus an
+			// additional error. For now, respond with what we have and an additional error.
 			// Marshal and write the standard Parse Error response. Ignore marshalling errors here.
 			if buf, merr := Marshal(NewResponseError(ErrParseError)); merr == nil {
 				_, _ = buffer.Write(buf) // Write error response to the buffer
 			}
 			// Proceed to write the buffer content (the error response) below.
-		} else if errors.As(err, &errMaxBytes) {
-			// Request body exceeded the MaxBytes limit.
-			resp.WriteHeader(http.StatusRequestEntityTooLarge)
-			return // Stop processing, header already sent.
-		} else {
+		default:
 			// For other unexpected errors during RPC processing.
 			resp.WriteHeader(http.StatusInternalServerError)
 			return // Stop processing, header already sent.
