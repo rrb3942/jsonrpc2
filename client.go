@@ -53,6 +53,11 @@ type Client struct {
 	defaultTimeout time.Duration
 }
 
+// Small wrapper to help get next ID value.
+func (c *Client) nextID() int64 {
+	return int64(c.id.Add(1))
+}
+
 // SetDefaultTimeout sets a default timeout duration for all subsequent Call and Notify
 // operations made through this Client. If the duration `d` is greater than zero,
 // a context with this timeout will be derived from the context passed to Call/Notify.
@@ -83,14 +88,7 @@ func (c *Client) Call(ctx context.Context, method string, params any) (*Response
 		return nil, err
 	}
 
-	// Atomically increment and get the next ID.
-	// Note: While the pool handles concurrency, atomic ID ensures uniqueness
-	// if multiple goroutines use the *same* Client instance, matching original intent.
-	// However, with pool size 1, this is less critical. Consider removing if simplifying further.
-	// For now, keep it for behavioral consistency.
-	// TODO: Re-evaluate atomic ID necessity with pool size 1.
-	nextID := c.id.Add(1) // Use Add method of atomic.Uint32
-	req := NewRequestWithParams(int64(nextID), method, reqParams)
+	req := NewRequestWithParams(c.nextID(), method, reqParams)
 
 	// Call the appropriate pool method based on whether a default timeout is set.
 	if c.defaultTimeout > 0 {
