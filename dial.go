@@ -133,7 +133,7 @@ func dialTLS(ctx context.Context, network, addr string) (*TransportClient, error
 //	bc.SetDefaultTimeout(5 * time.Second) // Optional: Set default timeout
 //
 //	var result string
-//	err = bc.Call(context.Background(), "echo", jsonrpc2.NewParamsArray("hello"), &result)
+//	response, err = bc.Call(context.Background(), "echo", []string{"hello"}))
 //	// ... handle result/error ...
 func Dial(ctx context.Context, destURI string) (*Client, error) {
 	// Create a default config, explicitly setting AcquireOnCreate=true
@@ -173,7 +173,7 @@ func Dial(ctx context.Context, destURI string) (*Client, error) {
 //	defer bc.Close()
 //
 //	var result string
-//	err = bc.Call(context.Background(), "echo", jsonrpc2.NewParamsArray("hello"), &result)
+//	response, err = bc.Call(context.Background(), "echo", []string{"hello"})
 //	// ... handle result/error ...
 func DialWithConfig(ctx context.Context, config ClientPoolConfig) (*Client, error) {
 	// Create the pool using the provided config and the default DialTransport function.
