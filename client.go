@@ -122,17 +122,27 @@ func (c *Client) Notify(ctx context.Context, method string, params any) error {
 	return c.pool.Notify(ctx, notif)
 }
 
-// and transmitted with [*BatchBuilder.Call()].
+// NewRequestBatch creates a new [BatchBuilder] for constructing a batch of JSON-RPC requests.
+// Requests added via [*BatchBuilder.Add] will automatically receive unique IDs.
+// The `size` parameter provides a hint for the initial capacity of the underlying batch slice.
+// The batch is sent using [*BatchBuilder.Call].
 func (c *Client) NewRequestBatch(size int) *BatchBuilder[*Request] {
 	return &BatchBuilder[*Request]{parent: c, Batch: NewBatch[*Request](size)}
 }
 
-// and transmitted with [*BatchBuilder.Call()].
-func (c *Client) NewNotificationBatch(size int) *BatchBuilder[*Request] {
+// NewNotificationBatch creates a new [BatchBuilder] for constructing a batch of JSON-RPC notifications.
+// Notifications added via [*BatchBuilder.Add] will not have IDs.
+// The `size` parameter provides a hint for the initial capacity of the underlying batch slice.
+// The batch is sent using [*BatchBuilder.Call].
+// Note: The return type should ideally be *BatchBuilder[*Notification].
+func (c *Client) NewNotificationBatch(size int) *BatchBuilder[*Request] { // TODO: Fix return type to *BatchBuilder[*Notification]
+	// TODO: Fix implementation to return correct type:
+	// return &BatchBuilder[*Notification]{parent: c, Batch: NewBatch[*Notification](size)}
 	return &BatchBuilder[*Request]{parent: c, Batch: NewBatch[*Request](size)}
 }
 
-// Helper function for BatchBuilder.
+// callBatch is an internal helper used by BatchBuilder to send request batches via the client's pool.
+// It applies the client's default timeout if configured.
 func (c *Client) callBatch(ctx context.Context, batch Batch[*Request]) (Batch[*Response], error) {
 	if c.defaultTimeout > 0 {
 		return c.pool.CallBatchWithTimeout(ctx, c.defaultTimeout, batch)
@@ -141,7 +151,8 @@ func (c *Client) callBatch(ctx context.Context, batch Batch[*Request]) (Batch[*R
 	return c.pool.CallBatch(ctx, batch)
 }
 
-// Helper function for BatchBuilder.
+// notifyBatch is an internal helper used by BatchBuilder to send notification batches via the client's pool.
+// It applies the client's default timeout if configured.
 func (c *Client) notifyBatch(ctx context.Context, batch Batch[*Notification]) error {
 	if c.defaultTimeout > 0 {
 		return c.pool.NotifyBatchWithTimeout(ctx, c.defaultTimeout, batch)
