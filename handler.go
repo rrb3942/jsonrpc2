@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
 
 // ErrMethodAlreadyExists is returned by [MethodMux.Register] and [MethodMux.RegisterFunc]
@@ -76,7 +77,8 @@ func (fh *funcHandler) Handle(ctx context.Context, req *Request) (any, error) {
 // registration contention might impact performance. Registration should ideally
 // happen during application initialization.
 type MethodMux struct {
-	mux sync.Map // Stores map[string]Handler
+	defaultHandler atomic.Value
+	mux            sync.Map
 }
 
 // NewMethodMux creates and initializes a new [*MethodMux].
@@ -107,6 +109,11 @@ func (mm *MethodMux) Register(method string, handler Handler) error {
 	return nil
 }
 
+// Replace registers a new, or replaces an existing handler for method.
+func (mm *MethodMux) Replace(method string, handler Handler) {
+	mm.mux.Store(method, handler)
+}
+
 // RegisterFunc associates a function `f` with a specific method name.
 // It wraps the function using [NewFuncHandler].
 // If a handler is already registered for the given method, it returns [ErrMethodAlreadyExists].
@@ -129,6 +136,38 @@ func (mm *MethodMux) RegisterFunc(method string, f func(context.Context, *Reques
 	return mm.Register(method, NewFuncHandler(f))
 }
 
+// Replace registers a new, or replaces an existing handler for method using the given function.
+func (mm *MethodMux) ReplaceFunc(method string, f func(context.Context, *Request) (any, error)) {
+	mm.Replace(method, NewFuncHandler(f))
+}
+
+// Methods returns a list of the currently served methods.
+func (mm *MethodMux) Methods() []string {
+	methods := make([]string, 0)
+
+	//nolint:errcheck //Internally managed, key is never not a string
+	mm.mux.Range(func(key, _ any) bool { methods = append(methods, key.(string)); return true })
+
+	return methods
+}
+
+// Delete deletes any currently set handler for method.
+func (mm *MethodMux) Delete(method string) {
+	mm.mux.Delete(method)
+}
+
+// SetDefault sets a default handler to run instead of returning ErrMethodNotFound
+//
+// Call with `nil` to remove the default handler at any time.
+func (mm *MethodMux) SetDefault(handler Handler) {
+	mm.defaultHandler.Store(handler)
+}
+
+// SetDefault sets a default handler func to run instead of returning ErrMethodNotFound.
+func (mm *MethodMux) SetDefaultFunc(f func(context.Context, *Request) (any, error)) {
+	mm.SetDefault(NewFuncHandler(f))
+}
+
 // Handle implements the [Handler] interface for MethodMux.
 // It looks up the handler registered for the method specified in the [Request].
 // If a handler is found, Handle delegates the request processing to that handler.
@@ -137,8 +176,11 @@ func (mm *MethodMux) Handle(ctx context.Context, req *Request) (any, error) {
 	// Load the handler associated with the method name.
 	value, ok := mm.mux.Load(req.Method)
 	if !ok {
-		// Method not found.
-		return nil, ErrMethodNotFound
+		// Check for default handler
+		if value = mm.defaultHandler.Load(); value == nil {
+			// Method not found.
+			return nil, ErrMethodNotFound
+		}
 	}
 
 	//nolint:errcheck //Should be impossible, but handlRequest will catch the panic anyways for us
