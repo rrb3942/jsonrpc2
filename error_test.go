@@ -84,6 +84,21 @@ func TestAsError(t *testing.T) {
 			wantMsg:  ErrInvalidParams.Message,
 			wantData: "param 'x' missing",
 		},
+		{
+			name:     "Wrapped JSONRPC2 Error",
+			inputErr: fmt.Errorf("context: %w", ErrMethodNotFound), // Wrap ErrMethodNotFound
+			wantCode: ErrMethodNotFound.Code,
+			wantMsg:  ErrMethodNotFound.Message,
+			wantData: "", // No data expected from the original error
+		},
+		{
+			name:     "Wrapped Standard Error",
+			inputErr: fmt.Errorf("context: %w", errors.New("inner standard error")),
+			wantCode: ErrInternalError.Code,
+			wantMsg:  ErrInternalError.Message,
+			// asError should use the outer error message for data
+			wantData: "context: inner standard error",
+		},
 	}
 
 	for _, tt := range tests {
@@ -200,6 +215,17 @@ func TestErrorIs(t *testing.T) {
 
 	if errors.Is(err1, err3) {
 		t.Errorf("Expected err1 Is err3 to be false (different code)")
+	}
+
+	// Test with pointer target
+	err1PtrTarget := NewError(100, "Error 100 target")
+	if !errors.Is(err1, &err1PtrTarget) {
+		t.Errorf("Expected err1 Is &err1PtrTarget to be true (same code)")
+	}
+
+	err3PtrTarget := NewError(200, "Error 200 target")
+	if errors.Is(err1, &err3PtrTarget) {
+		t.Errorf("Expected err1 Is &err3PtrTarget to be false (different code)")
 	}
 }
 
