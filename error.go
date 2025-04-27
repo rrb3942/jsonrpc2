@@ -105,7 +105,7 @@ func (e Error) WithData(data any) Error {
 }
 
 // Is reports whether the target error `t` is considered equivalent to this [Error] `e`.
-// Equivalence is determined solely by comparing the [Error.Code] fields of both errors.
+// Equivalence is determined solely by comparing the [Error.Code] fields of non-zero errors (created via NewError methods or Unmarshaled).
 // This allows using [errors.Is] to check if an error matches one of the predefined
 // error types (like [ErrInvalidParams], [ErrMethodNotFound], etc.) regardless of
 // the message or data content.
@@ -163,7 +163,7 @@ func (e Error) Error() string {
 }
 
 // UnmarshalJSON implements the [encoding/json.Unmarshaler] interface.
-// This custom unmarshaler ensures that the internal `present` flag is set
+// This custom unmarshaler ensures that the internal flag is set
 // correctly when an Error object is successfully unmarshaled from JSON,
 // distinguishing it from a zero-value Error struct. It uses the package-level
 // [Unmarshal] function.
