@@ -68,12 +68,12 @@ func (m *mockConn) Close() error {
 	return m.closeErr
 }
 
-// setupTestClient creates a client and a simulated server connection using pipes.
+// setupTestTransportClient creates a client and a simulated server connection using pipes.
 // The server side reads requests from serverReader and writes responses to serverWriter.
-func setupTestClient(serverWriter io.Writer) (*Client, *io.PipeWriter, *mockConn) {
+func setupTestTransportClient(serverWriter io.Writer) (*TransportClient, *io.PipeWriter, *mockConn) {
 	clientReader, clientWriter := io.Pipe()
 	conn := &mockConn{r: clientReader, w: serverWriter, c: clientWriter}
-	client := NewClientIO(conn)
+	client := NewTransportClientIO(conn)
 
 	return client, clientWriter, conn
 }
@@ -108,10 +108,10 @@ func simulateServer(t *testing.T, serverReader io.Reader, clientWriter io.Writer
 	}
 }
 
-func TestClient_Call(t *testing.T) {
+func TestTransportClient_Call(t *testing.T) {
 	serverReader, serverWriter := io.Pipe() // Server reads from serverReader, writes to serverWriter
 
-	client, clientWriter, _ := setupTestClient(serverWriter)
+	client, clientWriter, _ := setupTestTransportClient(serverWriter)
 	defer client.Close()
 
 	req := NewRequestWithParams(int64(1), "testMethod", NewParamsArray([]string{"testParam"}))
@@ -147,23 +147,23 @@ func TestClient_Call(t *testing.T) {
 
 	resp, err := client.Call(t.Context(), req)
 	if err != nil {
-		t.Fatalf("Client.Call failed: %v", err)
+		t.Fatalf("TransportClient.Call failed: %v", err)
 	}
 
 	assert.Equal(t, json.RawMessage(string("\"testResult\"")), resp.Result.value)
 
 	respID, _ := resp.ID.Int64()
 	if respID != 1 {
-		t.Errorf("Client received wrong ID: got %d, want %d", respID, 1)
+		t.Errorf("TransportClient received wrong ID: got %d, want %d", respID, 1)
 	}
 
 	wg.Wait() // Ensure server goroutine finishes
 }
 
-func TestClient_CallWithTimeout(t *testing.T) {
+func TestTransportClient_CallWithTimeout(t *testing.T) {
 	serverReader, serverWriter := io.Pipe()
 
-	client, clientWriter, conn := setupTestClient(serverWriter)
+	client, clientWriter, conn := setupTestTransportClient(serverWriter)
 	defer client.Close()
 
 	// Simulate a slow server
@@ -177,14 +177,14 @@ func TestClient_CallWithTimeout(t *testing.T) {
 	_, err := client.CallWithTimeout(ctx, timeout, req)
 
 	if err == nil {
-		t.Fatalf("Client.CallWithTimeout should have failed due to timeout, but got nil error")
+		t.Fatalf("TransportClient.CallWithTimeout should have failed due to timeout, but got nil error")
 	}
 
 	// Check if the error is a context deadline exceeded error
 	if !errors.Is(err, context.DeadlineExceeded) {
 		// Depending on timing and pipe buffering, it might also be io.ErrClosedPipe from the server side closing
 		// or another error if the encode/decode itself times out.
-		t.Logf("Client.CallWithTimeout failed with expected error type: %v", err)
+		t.Logf("TransportClient.CallWithTimeout failed with expected error type: %v", err)
 	}
 
 	// Ensure the server goroutine doesn't hang (optional, as the pipe breaks on timeout)
@@ -195,10 +195,10 @@ func TestClient_CallWithTimeout(t *testing.T) {
 	})
 }
 
-func TestClient_Notify(t *testing.T) {
+func TestTransportClient_Notify(t *testing.T) {
 	serverReader, serverWriter := io.Pipe()
 
-	client, clientWriter, _ := setupTestClient(serverWriter)
+	client, clientWriter, _ := setupTestTransportClient(serverWriter)
 	defer client.Close()
 
 	notification := NewNotificationWithParams("notifyMethod", NewParamsArray([]string{"notifyData"}))
@@ -234,7 +234,7 @@ func TestClient_Notify(t *testing.T) {
 
 	err := client.Notify(t.Context(), notification)
 	if err != nil {
-		t.Fatalf("Client.Notify failed: %v", err)
+		t.Fatalf("TransportClient.Notify failed: %v", err)
 	}
 
 	// Close the client-side writer to signal EOF to the server reader, allowing simulateServer to exit.
@@ -249,10 +249,10 @@ func TestClient_Notify(t *testing.T) {
 	}
 }
 
-func TestClient_NotifyWithTimeout(t *testing.T) {
+func TestTransportClient_NotifyWithTimeout(t *testing.T) {
 	_, serverWriter := io.Pipe()
 
-	client, _, conn := setupTestClient(serverWriter)
+	client, _, conn := setupTestTransportClient(serverWriter)
 	defer client.Close()
 
 	// Simulate a slow write
@@ -266,17 +266,17 @@ func TestClient_NotifyWithTimeout(t *testing.T) {
 	err := client.NotifyWithTimeout(ctx, timeout, notification)
 
 	if err == nil {
-		t.Fatalf("Client.NotifyWithTimeout should have failed due to timeout, but got nil error")
+		t.Fatalf("TransportClient.NotifyWithTimeout should have failed due to timeout, but got nil error")
 	}
 
 	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Logf("Client.NotifyWithTimeout failed with expected error type: %v", err)
+		t.Logf("TransportClient.NotifyWithTimeout failed with expected error type: %v", err)
 	}
 }
 
-func TestClient_Close(t *testing.T) {
+func TestTransportClient_Close(t *testing.T) {
 	_, serverWriter := io.Pipe()
-	client, _, conn := setupTestClient(serverWriter)
+	client, _, conn := setupTestTransportClient(serverWriter)
 
 	// Test closing works
 	err := client.Close()
@@ -303,7 +303,7 @@ func TestClient_Close(t *testing.T) {
 	// Test closing with underlying error
 	expectedErr := errors.New("mock close error")
 	conn.closeErr = expectedErr
-	clientWithErr, _, connWithErr := setupTestClient(serverWriter) // Use fresh pipes
+	clientWithErr, _, connWithErr := setupTestTransportClient(serverWriter) // Use fresh pipes
 	connWithErr.closeErr = expectedErr
 
 	err = clientWithErr.Close()
@@ -312,10 +312,10 @@ func TestClient_Close(t *testing.T) {
 	}
 }
 
-func TestClient_Call_ContextCancel(t *testing.T) {
+func TestTransportClient_Call_ContextCancel(t *testing.T) {
 	_, serverWriter := io.Pipe()
 
-	client, _, conn := setupTestClient(serverWriter)
+	client, _, conn := setupTestTransportClient(serverWriter)
 	defer client.Close()
 
 	// Simulate a delay in writing the request
@@ -343,18 +343,18 @@ func TestClient_Call_ContextCancel(t *testing.T) {
 	wg.Wait()
 
 	if callErr == nil {
-		t.Fatalf("Client.Call should have failed due to context cancellation, but got nil error")
+		t.Fatalf("TransportClient.Call should have failed due to context cancellation, but got nil error")
 	}
 
 	if !errors.Is(callErr, context.Canceled) {
-		t.Errorf("Client.Call failed with unexpected error: got %v, want %v", callErr, context.Canceled)
+		t.Errorf("TransportClient.Call failed with unexpected error: got %v, want %v", callErr, context.Canceled)
 	}
 }
 
-func TestClient_Call_ServerError(t *testing.T) {
+func TestTransportClient_Call_ServerError(t *testing.T) {
 	serverReader, serverWriter := io.Pipe()
 
-	client, clientWriter, _ := setupTestClient(serverWriter)
+	client, clientWriter, _ := setupTestTransportClient(serverWriter)
 	defer client.Close()
 
 	req := NewRequest(int64(1), "errorMethod")
@@ -375,7 +375,7 @@ func TestClient_Call_ServerError(t *testing.T) {
 
 	resp, err := client.Call(t.Context(), req)
 	if err != nil {
-		t.Fatalf("Client.Call failed: %v", err)
+		t.Fatalf("TransportClient.Call failed: %v", err)
 	}
 
 	if !resp.IsError() {
@@ -389,10 +389,10 @@ func TestClient_Call_ServerError(t *testing.T) {
 	wg.Wait()
 }
 
-func TestClient_Call_DecodeError(t *testing.T) {
+func TestTransportClient_Call_DecodeError(t *testing.T) {
 	serverReader, serverWriter := io.Pipe()
 
-	client, clientWriter, _ := setupTestClient(serverWriter)
+	client, clientWriter, _ := setupTestTransportClient(serverWriter)
 	defer client.Close()
 
 	req := NewRequest(int64(1), "decodeErrorMethod")
@@ -411,15 +411,15 @@ func TestClient_Call_DecodeError(t *testing.T) {
 
 	_, err := client.Call(t.Context(), req)
 	if err == nil {
-		t.Fatalf("Client.Call should have failed due to decode error, but got nil error")
+		t.Fatalf("TransportClient.Call should have failed due to decode error, but got nil error")
 	}
 
 	// Check if it's a json syntax error or similar io error
 	var syntaxError *json.SyntaxError
 	if !errors.As(err, &syntaxError) && !errors.Is(err, io.ErrUnexpectedEOF) {
-		t.Errorf("Client.Call failed with unexpected error type: %v", err)
+		t.Errorf("TransportClient.Call failed with unexpected error type: %v", err)
 	} else {
-		t.Logf("Client.Call failed with expected decode error: %v", err)
+		t.Logf("TransportClient.Call failed with expected decode error: %v", err)
 	}
 
 	wg.Wait()
@@ -427,10 +427,10 @@ func TestClient_Call_DecodeError(t *testing.T) {
 
 // --- Batch Tests ---
 
-func TestClient_CallBatch(t *testing.T) {
+func TestTransportClient_CallBatch(t *testing.T) {
 	serverReader, serverWriter := io.Pipe()
 
-	client, clientWriter, _ := setupTestClient(serverWriter)
+	client, clientWriter, _ := setupTestTransportClient(serverWriter)
 	defer client.Close()
 
 	reqs := NewBatch[*Request](2)
@@ -462,11 +462,11 @@ func TestClient_CallBatch(t *testing.T) {
 
 	resps, err := client.CallBatch(t.Context(), reqs)
 	if err != nil {
-		t.Fatalf("Client.CallBatch failed: %v", err)
+		t.Fatalf("TransportClient.CallBatch failed: %v", err)
 	}
 
 	if len(resps) != len(expectedResps) {
-		t.Fatalf("Client.CallBatch returned wrong number of responses: got %d, want %d", len(resps), len(expectedResps))
+		t.Fatalf("TransportClient.CallBatch returned wrong number of responses: got %d, want %d", len(resps), len(expectedResps))
 	}
 
 	// Simple check on IDs and one result/error
@@ -482,10 +482,10 @@ func TestClient_CallBatch(t *testing.T) {
 	wg.Wait()
 }
 
-func TestClient_CallBatch_SingleResponse(t *testing.T) {
+func TestTransportClient_CallBatch_SingleResponse(t *testing.T) {
 	serverReader, serverWriter := io.Pipe()
 
-	client, clientWriter, _ := setupTestClient(serverWriter)
+	client, clientWriter, _ := setupTestTransportClient(serverWriter)
 	defer client.Close()
 
 	reqs := NewBatch[*Request](1)
@@ -508,11 +508,11 @@ func TestClient_CallBatch_SingleResponse(t *testing.T) {
 
 	resps, err := client.CallBatch(t.Context(), reqs)
 	if err != nil {
-		t.Fatalf("Client.CallBatch failed: %v", err)
+		t.Fatalf("TransportClient.CallBatch failed: %v", err)
 	}
 
 	if len(resps) != 1 {
-		t.Fatalf("Client.CallBatch should wrap single response: got len %d, want 1", len(resps))
+		t.Fatalf("TransportClient.CallBatch should wrap single response: got len %d, want 1", len(resps))
 	}
 
 	resp1, ok1 := resps.Get(NewID(int64(1)))
@@ -522,10 +522,10 @@ func TestClient_CallBatch_SingleResponse(t *testing.T) {
 	wg.Wait()
 }
 
-func TestClient_NotifyBatch(t *testing.T) {
+func TestTransportClient_NotifyBatch(t *testing.T) {
 	serverReader, serverWriter := io.Pipe()
 
-	client, clientWriter, _ := setupTestClient(serverWriter)
+	client, clientWriter, _ := setupTestTransportClient(serverWriter)
 	defer client.Close()
 
 	notifs := NewBatch[*Notification](2)
@@ -553,7 +553,7 @@ func TestClient_NotifyBatch(t *testing.T) {
 
 	err := client.NotifyBatch(t.Context(), notifs)
 	if err != nil {
-		t.Fatalf("Client.NotifyBatch failed: %v", err)
+		t.Fatalf("TransportClient.NotifyBatch failed: %v", err)
 	}
 
 	// Close the client-side writer to signal EOF
@@ -570,10 +570,10 @@ func TestClient_NotifyBatch(t *testing.T) {
 
 // --- Raw Tests ---
 
-func TestClient_CallRaw(t *testing.T) {
+func TestTransportClient_CallRaw(t *testing.T) {
 	serverReader, serverWriter := io.Pipe()
 
-	client, clientWriter, _ := setupTestClient(serverWriter)
+	client, clientWriter, _ := setupTestTransportClient(serverWriter)
 	defer client.Close()
 
 	rawReq := RawRequest(`{"jsonrpc": "2.0", "method": "rawMethod", "params": [1, 2], "id": "req-raw"}`)
@@ -599,26 +599,26 @@ func TestClient_CallRaw(t *testing.T) {
 
 	resp, err := client.CallRaw(t.Context(), rawReq)
 	if err != nil {
-		t.Fatalf("Client.CallRaw failed: %v", err)
+		t.Fatalf("TransportClient.CallRaw failed: %v", err)
 	}
 
 	var result int
 	if err := resp.Result.Unmarshal(&result); err != nil || result != 3 {
-		t.Errorf("Client received wrong result: got %v (err: %v), want %d", resp.Result.value, err, 3)
+		t.Errorf("TransportClient received wrong result: got %v (err: %v), want %d", resp.Result.value, err, 3)
 	}
 
 	respID, _ := resp.ID.String()
 	if respID != "req-raw" {
-		t.Errorf("Client received wrong ID: got %s, want %s", respID, "req-raw")
+		t.Errorf("TransportClient received wrong ID: got %s, want %s", respID, "req-raw")
 	}
 
 	wg.Wait()
 }
 
-func TestClient_NotifyRaw(t *testing.T) {
+func TestTransportClient_NotifyRaw(t *testing.T) {
 	serverReader, serverWriter := io.Pipe()
 
-	client, clientWriter, _ := setupTestClient(serverWriter)
+	client, clientWriter, _ := setupTestTransportClient(serverWriter)
 	defer client.Close()
 
 	rawNotif := RawNotification(`{"jsonrpc": "2.0", "method": "rawNotify", "params": {"status": "done"}}`)
@@ -644,7 +644,7 @@ func TestClient_NotifyRaw(t *testing.T) {
 
 	err := client.NotifyRaw(t.Context(), rawNotif)
 	if err != nil {
-		t.Fatalf("Client.NotifyRaw failed: %v", err)
+		t.Fatalf("TransportClient.NotifyRaw failed: %v", err)
 	}
 
 	// Close the client-side writer to signal EOF

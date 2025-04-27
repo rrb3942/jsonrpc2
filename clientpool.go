@@ -61,18 +61,18 @@ type ClientPoolConfig struct {
 	AcquireOnCreate bool
 }
 
-// ClientPool manages a pool of reusable [*Client] connections to a JSON-RPC server.
+// ClientPool manages a pool of reusable [*TransportClient] connections to a JSON-RPC server.
 // It allows multiple goroutines to make concurrent RPC calls efficiently by reusing
 // established connections. It also handles automatic retries for certain types of errors
 // and manages the lifecycle (creation, closing) of client connections.
 //
 // Use [NewClientPool] or [NewClientPoolWithDialer] to create instances.
 type ClientPool struct {
-	pool    *puddle.Pool[*Client] // Underlying connection pool from github.com/jackc/puddle/v2
-	idle    *time.Timer           // Timer for closing idle connections
-	retries int                   // Number of allowed attempts (initial + retries)
-	closed  bool                  // Flag indicating if Close() has been called
-	mu      sync.Mutex            // Protects access to closed flag and idle timer
+	pool    *puddle.Pool[*TransportClient] // Underlying connection pool from github.com/jackc/puddle/v2
+	idle    *time.Timer                    // Timer for closing idle connections
+	retries int                            // Number of allowed attempts (initial + retries)
+	closed  bool                           // Flag indicating if Close() has been called
+	mu      sync.Mutex                     // Protects access to closed flag and idle timer
 }
 
 // NewClientPool creates a new [ClientPool] using the default [Dial] function.
@@ -103,7 +103,7 @@ func NewClientPool(nctx context.Context, config ClientPoolConfig) (*ClientPool, 
 // NewClientPoolWithDialer creates a new [ClientPool] using a custom dialer function.
 // This allows using non-standard transports or custom connection logic. The `dialFunc`
 // should establish a connection to the server specified by `config.URI` and return
-// a [*Client].
+// a [*TransportClient].
 //
 // If [ClientPoolConfig.AcquireOnCreate] is true, it attempts to establish an initial
 // connection using the provided `dialFunc` and returns an error if it fails.
@@ -126,7 +126,7 @@ func NewClientPool(nctx context.Context, config ClientPoolConfig) (*ClientPool, 
 //	config := jsonrpc2.ClientPoolConfig{ URI: "tls://secure.example.com:443", /* ... */ }
 //	pool, err := jsonrpc2.NewClientPoolWithDialer(context.Background(), config, customDialer)
 //	// ... handle error and use pool ...
-func NewClientPoolWithDialer(nctx context.Context, config ClientPoolConfig, dialFunc func(ctx context.Context, uri string) (*Client, error)) (*ClientPool, error) {
+func NewClientPoolWithDialer(nctx context.Context, config ClientPoolConfig, dialFunc func(ctx context.Context, uri string) (*TransportClient, error)) (*ClientPool, error) {
 	// Set defaults if zero values provided.
 	if config.IdleTimeout == 0 {
 		config.IdleTimeout = time.Duration(DefaultPoolIdleTimeout) * time.Second
@@ -141,13 +141,13 @@ func NewClientPoolWithDialer(nctx context.Context, config ClientPoolConfig, dial
 		config.MaxSize = int32(min(runtime.NumCPU(), runtime.GOMAXPROCS(-1)) * 2)
 	}
 
-	pool, err := puddle.NewPool[*Client](&puddle.Config[*Client]{
-		Constructor: func(ctx context.Context) (*Client, error) {
+	pool, err := puddle.NewPool[*TransportClient](&puddle.Config[*TransportClient]{
+		Constructor: func(ctx context.Context) (*TransportClient, error) {
 			dialCtx, stop := context.WithTimeout(ctx, config.DialTimeout)
 			defer stop()
 			return dialFunc(dialCtx, config.URI)
 		},
-		Destructor: func(client *Client) { _ = client.Close() },
+		Destructor: func(client *TransportClient) { _ = client.Close() },
 		MaxSize:    config.MaxSize,
 	})
 
@@ -238,10 +238,10 @@ func (cp *ClientPool) Reset() {
 }
 
 // releaseMaybeRetry is an internal helper function to manage the lifecycle of a
-// puddle resource ([*puddle.Resource[*Client]]) after a call attempt.
+// puddle resource ([*puddle.Resource[*TransportClient]]) after a call attempt.
 // It decides whether the error warrants destroying the client connection and
 // potentially retrying the operation with a new connection.
-func releaseMaybeRetry(res *puddle.Resource[*Client], err error) (needsRetry bool) {
+func releaseMaybeRetry(res *puddle.Resource[*TransportClient], err error) (needsRetry bool) {
 	if err != nil {
 		// Always destroy the connection resource on any error during a call.
 		// This ensures potentially corrupted connections are not reused.

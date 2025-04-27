@@ -9,34 +9,34 @@ import (
 	"time"
 )
 
-// Client provides methods for making JSON-RPC 2.0 calls to a remote server
+// TransportClient provides methods for making JSON-RPC 2.0 calls to a remote server
 // over a single underlying connection or stream.
 //
-// A Client instance manages encoding requests and decoding responses.
+// A TransportClient instance manages encoding requests and decoding responses.
 // It is goroutine-safe, meaning multiple goroutines can make calls concurrently
-// using the same Client instance. However, all calls are serialized over the
+// using the same TransportClient instance. However, all calls are serialized over the
 // single underlying transport managed by the associated [Encoder] and [Decoder].
-// For concurrent connections, consider using a [ClientPool].
+// For concurrent connections, consider using a [TransportClientPool].
 //
-// Use [Dial], [NewClient], or [NewClientIO] to create instances.
-type Client struct {
+// Use [Dial], [NewTransportClient], or [NewTransportClientIO] to create instances.
+type TransportClient struct {
 	e  Encoder
 	d  Decoder
 	mu sync.Mutex // Protects concurrent access to Encode/Decode operations on the shared stream.
 }
 
-// NewClient creates a new [Client] that uses the provided [Encoder] and [Decoder]
+// NewTransportClient creates a new [TransportClient] that uses the provided [Encoder] and [Decoder]
 // for communication. This allows using custom encoding/decoding logic or transports.
-func NewClient(e Encoder, d Decoder) *Client {
-	return &Client{e: e, d: d}
+func NewTransportClient(e Encoder, d Decoder) *TransportClient {
+	return &TransportClient{e: e, d: d}
 }
 
-// NewClientIO creates a new [Client] that communicates over the given [io.ReadWriter].
+// NewTransportClientIO creates a new [TransportClient] that communicates over the given [io.ReadWriter].
 // It wraps the `rw` with the default [NewEncoder] and [NewDecoder] implementations.
 // This is a convenient way to create a client for standard network connections ([net.Conn])
 // or other stream-based transports.
-func NewClientIO(rw io.ReadWriter) *Client {
-	return &Client{e: NewEncoder(rw), d: NewDecoder(rw)}
+func NewTransportClientIO(rw io.ReadWriter) *TransportClient {
+	return &TransportClient{e: NewEncoder(rw), d: NewDecoder(rw)}
 }
 
 // Close attempts to close the underlying [Encoder] and [Decoder] if they implement
@@ -46,10 +46,10 @@ func NewClientIO(rw io.ReadWriter) *Client {
 // It is safe to call Close multiple times; subsequent calls after the first
 // will have no effect.
 //
-// After Close is called, the Client should no longer be used for making calls,
+// After Close is called, the TransportClient should no longer be used for making calls,
 // as the underlying transport will likely be closed. Errors from closing both
 // the encoder and decoder (if applicable) are joined using [errors.Join].
-func (c *Client) Close() error {
+func (c *TransportClient) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -69,7 +69,7 @@ func (c *Client) Close() error {
 // call is the internal method handling the core logic of sending a request/notification
 // and potentially reading a response. It acquires the client's mutex to ensure
 // serialized access to the underlying encoder/decoder.
-func (c *Client) call(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
+func (c *TransportClient) call(ctx context.Context, rpc any, isNotify bool) (json.RawMessage, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -103,7 +103,7 @@ func (c *Client) call(ctx context.Context, rpc any, isNotify bool) (json.RawMess
 //
 // Example:
 //
-//	client := jsonrpc2.NewClientIO(conn) // Assume conn is an established io.ReadWriter
+//	client := jsonrpc2.NewTransportClientIO(conn) // Assume conn is an established io.ReadWriter
 //	defer client.Close()
 //	req := jsonrpc2.NewRequestWithParams(1, "arith.add", NewParamsArray([]int{2, 3}))
 //	resp, err := client.Call(context.Background(), req)
@@ -118,7 +118,7 @@ func (c *Client) call(ctx context.Context, rpc any, isNotify bool) (json.RawMess
 //	    log.Fatalf("Failed to unmarshal result: %v", err)
 //	}
 //	fmt.Println("Result:", result) // Output: Result: 5
-func (c *Client) Call(ctx context.Context, r *Request) (*Response, error) {
+func (c *TransportClient) Call(ctx context.Context, r *Request) (*Response, error) {
 	rawResp, err := c.call(ctx, r, false) // false indicates it's not a notification
 
 	if err != nil {
@@ -158,7 +158,7 @@ func (c *Client) Call(ctx context.Context, r *Request) (*Response, error) {
 //	    // ... handle matched req/res pairs ...
 //	    return true
 //	})
-func (c *Client) CallBatch(ctx context.Context, r Batch[*Request]) (Batch[*Response], error) {
+func (c *TransportClient) CallBatch(ctx context.Context, r Batch[*Request]) (Batch[*Response], error) {
 	rawResp, err := c.call(ctx, r, false) // false indicates it's not a notification batch
 
 	if err != nil {
@@ -195,7 +195,7 @@ func (c *Client) CallBatch(ctx context.Context, r Batch[*Request]) (Batch[*Respo
 //	rawReq := jsonrpc2.RawRequest(rawJSON)
 //	resp, err := client.CallRaw(context.Background(), rawReq)
 //	// ... process response as in Call example ...
-func (c *Client) CallRaw(ctx context.Context, r RawRequest) (*Response, error) {
+func (c *TransportClient) CallRaw(ctx context.Context, r RawRequest) (*Response, error) {
 	// Note: We pass json.RawMessage(r) to call because RawRequest is just an alias.
 	rawResp, err := c.call(ctx, json.RawMessage(r), false) // false indicates it's not a notification
 
@@ -212,30 +212,30 @@ func (c *Client) CallRaw(ctx context.Context, r RawRequest) (*Response, error) {
 	return &resp, nil
 }
 
-// CallWithTimeout is a convenience method that calls [Client.Call] with a derived context
+// CallWithTimeout is a convenience method that calls [TransportClient.Call] with a derived context
 // that includes the specified `timeout`.
-// See [Client.Call] for more details.
-func (c *Client) CallWithTimeout(ctx context.Context, timeout time.Duration, r *Request) (*Response, error) {
+// See [TransportClient.Call] for more details.
+func (c *TransportClient) CallWithTimeout(ctx context.Context, timeout time.Duration, r *Request) (*Response, error) {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
 
 	return c.Call(tctx, r)
 }
 
-// CallBatchWithTimeout is a convenience method that calls [Client.CallBatch] with a derived context
+// CallBatchWithTimeout is a convenience method that calls [TransportClient.CallBatch] with a derived context
 // that includes the specified `timeout`.
-// See [Client.CallBatch] for more details.
-func (c *Client) CallBatchWithTimeout(ctx context.Context, timeout time.Duration, r Batch[*Request]) (Batch[*Response], error) {
+// See [TransportClient.CallBatch] for more details.
+func (c *TransportClient) CallBatchWithTimeout(ctx context.Context, timeout time.Duration, r Batch[*Request]) (Batch[*Response], error) {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
 
 	return c.CallBatch(tctx, r)
 }
 
-// CallRawWithTimeout is a convenience method that calls [Client.CallRaw] with a derived context
+// CallRawWithTimeout is a convenience method that calls [TransportClient.CallRaw] with a derived context
 // that includes the specified `timeout`.
-// See [Client.CallRaw] for more details.
-func (c *Client) CallRawWithTimeout(ctx context.Context, timeout time.Duration, r RawRequest) (*Response, error) {
+// See [TransportClient.CallRaw] for more details.
+func (c *TransportClient) CallRawWithTimeout(ctx context.Context, timeout time.Duration, r RawRequest) (*Response, error) {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
 
@@ -253,7 +253,7 @@ func (c *Client) CallRawWithTimeout(ctx context.Context, timeout time.Duration, 
 //	if err != nil {
 //	    log.Printf("Notify failed: %v", err) // Log error, but don't expect a response error
 //	}
-func (c *Client) Notify(ctx context.Context, n *Notification) error {
+func (c *TransportClient) Notify(ctx context.Context, n *Notification) error {
 	if _, err := c.call(ctx, n, true); err != nil {
 		return err
 	}
@@ -273,7 +273,7 @@ func (c *Client) Notify(ctx context.Context, n *Notification) error {
 //	batchNotif.Add(notif1, notif2)
 //	err := client.NotifyBatch(context.Background(), batchNotif)
 //	// ... handle potential send error ...
-func (c *Client) NotifyBatch(ctx context.Context, n Batch[*Notification]) error {
+func (c *TransportClient) NotifyBatch(ctx context.Context, n Batch[*Notification]) error {
 	if _, err := c.call(ctx, n, true); err != nil {
 		return err
 	}
@@ -290,7 +290,7 @@ func (c *Client) NotifyBatch(ctx context.Context, n Batch[*Notification]) error 
 //	rawNotif := jsonrpc2.RawNotification(rawJSON)
 //	err := client.NotifyRaw(context.Background(), rawNotif)
 //	// ... handle potential send error ...
-func (c *Client) NotifyRaw(ctx context.Context, n RawNotification) error {
+func (c *TransportClient) NotifyRaw(ctx context.Context, n RawNotification) error {
 	if _, err := c.call(ctx, json.RawMessage(n), true); err != nil {
 		return err
 	}
@@ -298,30 +298,30 @@ func (c *Client) NotifyRaw(ctx context.Context, n RawNotification) error {
 	return nil
 }
 
-// NotifyWithTimeout is a convenience method that calls [Client.Notify] with a derived context
+// NotifyWithTimeout is a convenience method that calls [TransportClient.Notify] with a derived context
 // that includes the specified `timeout`.
-// See [Client.Notify] for more details.
-func (c *Client) NotifyWithTimeout(ctx context.Context, timeout time.Duration, n *Notification) error {
+// See [TransportClient.Notify] for more details.
+func (c *TransportClient) NotifyWithTimeout(ctx context.Context, timeout time.Duration, n *Notification) error {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
 
 	return c.Notify(tctx, n)
 }
 
-// NotifyBatchWithTimeout is a convenience method that calls [Client.NotifyBatch] with a derived context
+// NotifyBatchWithTimeout is a convenience method that calls [TransportClient.NotifyBatch] with a derived context
 // that includes the specified `timeout`.
-// See [Client.NotifyBatch] for more details.
-func (c *Client) NotifyBatchWithTimeout(ctx context.Context, timeout time.Duration, n Batch[*Notification]) error {
+// See [TransportClient.NotifyBatch] for more details.
+func (c *TransportClient) NotifyBatchWithTimeout(ctx context.Context, timeout time.Duration, n Batch[*Notification]) error {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
 
 	return c.NotifyBatch(tctx, n)
 }
 
-// NotifyRawWithTimeout is a convenience method that calls [Client.NotifyRaw] with a derived context
+// NotifyRawWithTimeout is a convenience method that calls [TransportClient.NotifyRaw] with a derived context
 // that includes the specified `timeout`.
-// See [Client.NotifyRaw] for more details.
-func (c *Client) NotifyRawWithTimeout(ctx context.Context, timeout time.Duration, n RawNotification) error {
+// See [TransportClient.NotifyRaw] for more details.
+func (c *TransportClient) NotifyRawWithTimeout(ctx context.Context, timeout time.Duration, n RawNotification) error {
 	tctx, stop := context.WithTimeout(ctx, timeout)
 	defer stop()
 

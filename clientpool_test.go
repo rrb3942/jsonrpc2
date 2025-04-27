@@ -66,15 +66,15 @@ func (m *mockPoolClient) Close() error {
 }
 
 // --- Test Helper ---.
-func setupTestPool(t *testing.T, config ClientPoolConfig, dialFunc func(ctx context.Context, uri string) (*Client, error)) (_ *ClientPool, cleanup func()) {
+func setupTestPool(t *testing.T, config ClientPoolConfig, dialFunc func(ctx context.Context, uri string) (*TransportClient, error)) (_ *ClientPool, cleanup func()) {
 	t.Helper()
 
 	if dialFunc == nil {
 		// Default mock dialer if none provided
-		dialFunc = func(_ context.Context, _ string) (*Client, error) {
+		dialFunc = func(_ context.Context, _ string) (*TransportClient, error) {
 			mockC := &mockPoolClient{}
 			// Wrap mock in actual Client struct using its Encoder/Decoder interfaces
-			return NewClient(mockC, mockC), nil
+			return NewTransportClient(mockC, mockC), nil
 		}
 	}
 
@@ -90,15 +90,15 @@ func setupTestPool(t *testing.T, config ClientPoolConfig, dialFunc func(ctx cont
 
 // --- Tests ---
 
-func TestNewClientPool(t *testing.T) {
+func TestNewTransportClientPool(t *testing.T) {
 	t.Run("Defaults", func(t *testing.T) {
 		dialCount := atomic.Int32{}
-		dialFunc := func(_ context.Context, _ string) (*Client, error) {
+		dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
 			dialCount.Add(1)
 
 			mockC := &mockPoolClient{}
 
-			return NewClient(mockC, mockC), nil
+			return NewTransportClient(mockC, mockC), nil
 		}
 		config := ClientPoolConfig{URI: "mock://"}
 
@@ -114,12 +114,12 @@ func TestNewClientPool(t *testing.T) {
 
 	t.Run("AcquireOnCreate_Success", func(t *testing.T) {
 		dialCount := atomic.Int32{}
-		dialFunc := func(_ context.Context, _ string) (*Client, error) {
+		dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
 			dialCount.Add(1)
 
 			mockC := &mockPoolClient{}
 
-			return NewClient(mockC, mockC), nil
+			return NewTransportClient(mockC, mockC), nil
 		}
 		config := ClientPoolConfig{URI: "mock://", AcquireOnCreate: true}
 		pool, err := NewClientPoolWithDialer(t.Context(), config, dialFunc)
@@ -134,7 +134,7 @@ func TestNewClientPool(t *testing.T) {
 
 	t.Run("AcquireOnCreate_Failure", func(t *testing.T) {
 		dialErr := errors.New("dial failed")
-		dialFunc := func(_ context.Context, _ string) (*Client, error) {
+		dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
 			return nil, dialErr
 		}
 		config := ClientPoolConfig{URI: "mock://", AcquireOnCreate: true}
@@ -198,8 +198,8 @@ func TestClientPool_Call_Success(t *testing.T) {
 			return json.Unmarshal(raw, v)
 		},
 	}
-	dialFunc := func(_ context.Context, _ string) (*Client, error) {
-		return NewClient(mockC, mockC), nil
+	dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
+		return NewTransportClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://", Retries: 1} // 1 retry = 2 attempts
 
@@ -235,7 +235,7 @@ func TestClientPool_Call_RetryableError(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	dialFunc := func(_ context.Context, _ string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
 		currentDial := dialCount.Add(1)
 
 		if currentDial == 1 {
@@ -269,7 +269,7 @@ func TestClientPool_Call_RetryableError(t *testing.T) {
 			},
 		}
 
-		return NewClient(mockC, mockC), nil
+		return NewTransportClient(mockC, mockC), nil
 	}
 
 	config := ClientPoolConfig{URI: "mock://", Retries: 1} // 1 retry = 2 attempts
@@ -309,7 +309,7 @@ func TestClientPool_Call_NonRetryableError(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	dialFunc := func(_ context.Context, _ string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
 		wg.Add(2)
 		dialCount.Add(1)
 
@@ -331,7 +331,7 @@ func TestClientPool_Call_NonRetryableError(t *testing.T) {
 			},
 		}
 
-		return NewClient(mockC, mockC), nil
+		return NewTransportClient(mockC, mockC), nil
 	}
 
 	config := ClientPoolConfig{URI: "mock://", Retries: 3} // More retries shouldn't matter
@@ -367,7 +367,7 @@ func TestClientPool_Call_RetriesExceeded(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	dialFunc := func(_ context.Context, _ string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
 		wg.Add(2)
 		dialCount.Add(1)
 
@@ -389,7 +389,7 @@ func TestClientPool_Call_RetriesExceeded(t *testing.T) {
 			},
 		}
 
-		return NewClient(mockC, mockC), nil
+		return NewTransportClient(mockC, mockC), nil
 	}
 
 	config := ClientPoolConfig{URI: "mock://", Retries: 2} // 2 retries = 3 attempts
@@ -432,8 +432,8 @@ func TestClientPool_Notify_Success(t *testing.T) {
 			return errors.New("decode should not be called for Notify")
 		},
 	}
-	dialFunc := func(_ context.Context, _ string) (*Client, error) {
-		return NewClient(mockC, mockC), nil
+	dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
+		return NewTransportClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://"}
 
@@ -457,7 +457,7 @@ func TestClientPool_Notify_RetryableError(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	dialFunc := func(_ context.Context, _ string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
 		currentDial := dialCount.Add(1)
 
 		if currentDial == 1 {
@@ -487,7 +487,7 @@ func TestClientPool_Notify_RetryableError(t *testing.T) {
 			},
 		}
 
-		return NewClient(mockC, mockC), nil
+		return NewTransportClient(mockC, mockC), nil
 	}
 
 	config := ClientPoolConfig{URI: "mock://", Retries: 1}
@@ -512,7 +512,7 @@ func TestClientPool_Notify_RetriesExceeded(t *testing.T) {
 	decodeCount := atomic.Int32{}
 	persistentErr := io.ErrUnexpectedEOF // Yet another retryable error
 
-	dialFunc := func(_ context.Context, _ string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
 		mockC := &mockPoolClient{
 			encodeFunc: func(_ context.Context, _ any) error {
 				encodeCount.Add(1)
@@ -526,7 +526,7 @@ func TestClientPool_Notify_RetriesExceeded(t *testing.T) {
 			},
 		}
 
-		return NewClient(mockC, mockC), nil
+		return NewTransportClient(mockC, mockC), nil
 	}
 
 	config := ClientPoolConfig{URI: "mock://", Retries: 1} // 1 retry = 2 attempts
@@ -547,7 +547,7 @@ func TestClientPool_Notify_RetriesExceeded(t *testing.T) {
 func TestClientPool_ContextCancel_Acquire(t *testing.T) {
 	// Use a dialer that blocks until context is cancelled
 	dialStarted := make(chan struct{})
-	dialFunc := func(ctx context.Context, _ string) (*Client, error) {
+	dialFunc := func(ctx context.Context, _ string) (*TransportClient, error) {
 		close(dialStarted) // Signal that dial has started
 		<-ctx.Done()       // Wait for cancellation
 
@@ -602,8 +602,8 @@ func TestClientPool_ContextCancel_DuringCall(t *testing.T) {
 			return errors.New("decode should not be called")
 		},
 	}
-	dialFunc := func(_ context.Context, _ string) (*Client, error) {
-		return NewClient(mockC, mockC), nil
+	dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
+		return NewTransportClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://", MaxSize: 1}
 
@@ -644,7 +644,7 @@ func TestClientPool_IdleTimeout(t *testing.T) {
 
 	closeCount := atomic.Int32{}
 	dialCount := atomic.Int32{}
-	dialFunc := func(_ context.Context, _ string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
 		dialCount.Add(1)
 
 		mockC := &mockPoolClient{
@@ -654,7 +654,7 @@ func TestClientPool_IdleTimeout(t *testing.T) {
 			},
 		}
 
-		return NewClient(mockC, mockC), nil
+		return NewTransportClient(mockC, mockC), nil
 	}
 
 	idleTime := 50 * time.Millisecond
@@ -697,7 +697,7 @@ func TestClientPool_MaxSize(t *testing.T) {
 	dialCount := atomic.Int32{}
 	blockDial := make(chan struct{}) // Channel to block dials
 
-	dialFunc := func(ctx context.Context, _ string) (*Client, error) {
+	dialFunc := func(ctx context.Context, _ string) (*TransportClient, error) {
 		dialCount.Add(1)
 		// Block subsequent dials if requested
 		if dialCount.Load() > maxSize {
@@ -710,7 +710,7 @@ func TestClientPool_MaxSize(t *testing.T) {
 
 		mockC := &mockPoolClient{}
 
-		return NewClient(mockC, mockC), nil
+		return NewTransportClient(mockC, mockC), nil
 	}
 
 	config := ClientPoolConfig{URI: "mock://", MaxSize: maxSize}
@@ -718,7 +718,7 @@ func TestClientPool_MaxSize(t *testing.T) {
 	pool, cleanup := setupTestPool(t, config, dialFunc)
 	defer cleanup()
 
-	var resources []*puddle.Resource[*Client]
+	var resources []*puddle.Resource[*TransportClient]
 	// Acquire up to MaxSize
 	for i := int32(0); i < maxSize; i++ {
 		res, err := pool.pool.Acquire(t.Context())
@@ -771,7 +771,7 @@ func TestClientPool_Close(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	dialFunc := func(_ context.Context, _ string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
 		wg.Add(2)
 
 		mockC := &mockPoolClient{
@@ -782,7 +782,7 @@ func TestClientPool_Close(t *testing.T) {
 			},
 		}
 
-		return NewClient(mockC, mockC), nil
+		return NewTransportClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://", MaxSize: 2}
 
@@ -831,7 +831,7 @@ func TestClientPool_Reset(t *testing.T) {
 
 	var wg2 sync.WaitGroup
 
-	dialFunc := func(_ context.Context, _ string) (*Client, error) {
+	dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
 		dialcount := dialCount.Add(1)
 		switch dialcount {
 		case 1:
@@ -855,7 +855,7 @@ func TestClientPool_Reset(t *testing.T) {
 			},
 		}
 
-		return NewClient(mockC, mockC), nil
+		return NewTransportClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://", MaxSize: 2}
 
@@ -918,8 +918,8 @@ func TestClientPool_CallBatch(t *testing.T) {
 			return json.Unmarshal(raw, v)
 		},
 	}
-	dialFunc := func(_ context.Context, _ string) (*Client, error) {
-		return NewClient(mockC, mockC), nil
+	dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
+		return NewTransportClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://"}
 
@@ -952,8 +952,8 @@ func TestClientPool_CallRaw(t *testing.T) {
 			return json.Unmarshal(raw, v)
 		},
 	}
-	dialFunc := func(_ context.Context, _ string) (*Client, error) {
-		return NewClient(mockC, mockC), nil
+	dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
+		return NewTransportClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://"}
 
@@ -986,8 +986,8 @@ func TestClientPool_CallWithTimeout(t *testing.T) {
 			return errors.New("decode should not be called")
 		},
 	}
-	dialFunc := func(_ context.Context, _ string) (*Client, error) {
-		return NewClient(mockC, mockC), nil
+	dialFunc := func(_ context.Context, _ string) (*TransportClient, error) {
+		return NewTransportClient(mockC, mockC), nil
 	}
 	config := ClientPoolConfig{URI: "mock://"}
 

@@ -10,7 +10,7 @@ import (
 )
 
 // Dial establishes a JSON-RPC 2.0 client connection to the specified destination URI.
-// It returns a [*Client] ready for making RPC calls.
+// It returns a [*TransportClient] ready for making RPC calls.
 //
 // The `destURI` format is `scheme:address` or an http/https URL.
 //
@@ -34,7 +34,7 @@ import (
 //
 // Returns [ErrUnknownScheme] if the scheme is not supported.
 // Other errors may be returned from underlying network or TLS dialers, or URL parsing.
-func Dial(ctx context.Context, destURI string) (*Client, error) {
+func Dial(ctx context.Context, destURI string) (*TransportClient, error) {
 	uri, err := url.Parse(destURI)
 
 	if err != nil {
@@ -56,8 +56,8 @@ func Dial(ctx context.Context, destURI string) (*Client, error) {
 }
 
 // dial is an internal helper to establish standard network connections (TCP, UDP, Unix).
-// It uses net.Dialer to create the connection and wraps it using [NewClientIO].
-func dial(ctx context.Context, network, addr string) (*Client, error) {
+// It uses net.Dialer to create the connection and wraps it using [NewTransportClientIO].
+func dial(ctx context.Context, network, addr string) (*TransportClient, error) {
 	// Use default net.Dialer with context support.
 	conn, err := new(net.Dialer).DialContext(ctx, network, addr)
 
@@ -66,13 +66,13 @@ func dial(ctx context.Context, network, addr string) (*Client, error) {
 	}
 
 	// Wrap the connection with a new client using standard stream encoder/decoder.
-	return NewClientIO(conn), nil
+	return NewTransportClientIO(conn), nil
 }
 
 // dialHTTP is an internal helper for creating a client that communicates over HTTP/HTTPS.
 // It initializes an [*HTTPBridge] which acts as both the [Encoder] and [Decoder]
-// for the [*Client].
-func dialHTTP(ctx context.Context, uri string) (*Client, error) {
+// for the [*TransportClient].
+func dialHTTP(ctx context.Context, uri string) (*TransportClient, error) {
 	// Check context cancellation before proceeding.
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -82,14 +82,14 @@ func dialHTTP(ctx context.Context, uri string) (*Client, error) {
 	bridge := NewHTTPBridge(uri)
 
 	// Create a client using the bridge for both encoding and decoding.
-	return NewClient(bridge, bridge), nil
+	return NewTransportClient(bridge, bridge), nil
 }
 
 // dialTLS is an internal helper to establish TLS connections.
 // It determines the underlying TCP network type (tcp, tcp4, tcp6) based on the
 // input network string ("tls", "tls4", "tls6") and uses tls.Dialer.
-// The resulting tls.Conn is wrapped using [NewClientIO].
-func dialTLS(ctx context.Context, network, addr string) (*Client, error) {
+// The resulting tls.Conn is wrapped using [NewTransportClientIO].
+func dialTLS(ctx context.Context, network, addr string) (*TransportClient, error) {
 	// Determine the underlying TCP network based on the "tls" prefix variant.
 	tcpNetwork := "tcp" // Default for "tls"
 
@@ -109,7 +109,7 @@ func dialTLS(ctx context.Context, network, addr string) (*Client, error) {
 	}
 
 	// Wrap the TLS connection with a new client.
-	return NewClientIO(conn), nil
+	return NewTransportClientIO(conn), nil
 }
 
 // DialBasic is a convenience function that establishes a connection to the destination URI
