@@ -90,20 +90,12 @@ func (b *BatchBuilder[B]) Add(method string, params any) error {
 		return err
 	}
 
-	// Determine the type B and create the appropriate message.
-	// We use a type assertion on a nil pointer of type B to check the underlying type.
-	var zero B
-	switch any(zero).(type) {
-	case *Request:
-		// Create and add a Request, casting the result to B.
-		req := NewRequestWithParams(b.parent.nextID(), method, reqParams)
-		//nolint:errcheck //Will always be correct
-		b.Batch.Add(any(req).(B))
-	case *Notification:
-		// Create and add a Notification, casting the result to B.
-		notif := NewNotificationWithParams(method, reqParams)
-		//nolint:errcheck //Will always be correct
-		b.Batch.Add(any(notif).(B))
+	// Determine the type of batch we are building and create the appropriate message.
+	switch bb := any(b).(type) {
+	case *BatchBuilder[*Request]:
+		bb.Batch.Add(NewRequestWithParams(b.parent.nextID(), method, reqParams))
+	case *BatchBuilder[*Notification]:
+		bb.Batch.Add(NewNotificationWithParams(method, reqParams))
 	default:
 		// This case should be impossible due to the BatchBuildable constraint.
 		return errUnreachable
