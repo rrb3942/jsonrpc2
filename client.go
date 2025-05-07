@@ -33,7 +33,7 @@ func makeParamsFromAny(v any) (Params, error) {
 		return Params{}, fmt.Errorf("jsonrpc2: failed to marshal params: %w", err)
 	}
 
-	hint := jsonHintType(raw)
+	hint := HintType(raw)
 	if hint != TypeObject && hint != TypeArray {
 		return Params{}, fmt.Errorf("%w: got %T", ErrInvalidParamsType, v)
 	}

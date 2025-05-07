@@ -320,7 +320,7 @@ func (rp *RPCServer) run(ctx context.Context, buf json.RawMessage, from net.Addr
 		ctx = context.WithValue(ctx, CtxFromAddr, from)
 	}
 
-	switch jsonHintType(buf) {
+	switch HintType(buf) {
 	case TypeArray:
 		rp.runRequests(ctx, buf, from)
 	case TypeObject:

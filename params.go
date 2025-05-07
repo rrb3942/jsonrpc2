@@ -7,10 +7,10 @@ import (
 )
 
 // ErrInvalidParameters indicates that the provided parameters are invalid according to the JSON-RPC 2.0 specification (e.g., not an object or array).
-var ErrInvalidParameters = errors.New("Invalid parameters")
+var ErrInvalidParameters = errors.New("invalid parameters")
 
 // ErrNotRawMessage indicates that an operation expected the internal value to be a [json.RawMessage], but it was not.
-var ErrNotRawMessage = errors.New("Value is it not a raw message")
+var ErrNotRawMessage = errors.New("value is it not a raw message")
 
 var errInvalidParamDecode = fmt.Errorf("%w (%w)", ErrDecoding, ErrInvalidParameters)
 
@@ -78,7 +78,7 @@ func (p *Params) Value() any {
 // Returns [TypeNotJSON] if the underlying type is not a [json.RawMessage].
 func (p *Params) TypeHint() TypeHint {
 	if m, ok := p.value.(json.RawMessage); ok {
-		return jsonHintType(m)
+		return HintType(m)
 	}
 
 	return TypeNotJSON
@@ -116,7 +116,7 @@ func (p *Params) IsZero() bool {
 // The raw JSON data is stored internally for potential later unmarshalling into a specific Go type via the [Params.Unmarshal] method.
 func (p *Params) UnmarshalJSON(data []byte) error {
 	// Must be an object or array
-	switch jsonHintType(data) {
+	switch HintType(data) {
 	case TypeObject, TypeArray:
 		var raw json.RawMessage
 		if err := Unmarshal(data, &raw); err != nil {

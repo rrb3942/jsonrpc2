@@ -31,13 +31,13 @@ const (
 	TypeNotJSON
 )
 
-// jsonHintType examines the first non-whitespace byte of a [json.RawMessage]
+// HintType examines the first non-whitespace byte of a [json.RawMessage]
 // to provide a [TypeHint] about the potential JSON data type it represents.
 // It returns [TypeEmpty] if the message is empty after trimming whitespace.
 // It returns [TypeUnknown] if the first character doesn't match known JSON type indicators.
 //
 // This function provides a fast check but does not validate the entire JSON structure.
-func jsonHintType(m json.RawMessage) TypeHint {
+func HintType(m json.RawMessage) TypeHint {
 	// Trim leading and trailing whitespace according to JSON rules.
 	m = bytes.TrimSpace(m)
 

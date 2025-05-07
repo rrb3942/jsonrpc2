@@ -169,7 +169,7 @@ func (c *TransportClient) CallBatch(ctx context.Context, r Batch[*Request]) (Bat
 
 	resp := NewBatch[*Response](len(r))
 
-	switch jsonHintType(rawResp) {
+	switch HintType(rawResp) {
 	case TypeObject:
 		var sresp *Response
 		if err := c.d.Unmarshal(rawResp, &sresp); err != nil {

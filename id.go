@@ -250,7 +250,7 @@ func (id *ID) Int64() (int64, error) {
 // It correctly decodes JSON strings, numbers (as json.Number), and null
 // into the ID struct. It returns an error for other JSON types (boolean, object, array).
 func (id *ID) UnmarshalJSON(data []byte) error {
-	switch jsonHintType(data) {
+	switch HintType(data) {
 	case TypeNull:
 		id.present = true
 	case TypeString:

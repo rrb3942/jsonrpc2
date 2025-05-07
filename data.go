@@ -59,7 +59,7 @@ func (d *Data) Value() any {
 //	hint := d.TypeHint() // hint == jsonrpc2.TypeArray
 func (d *Data) TypeHint() TypeHint {
 	if m, ok := d.value.(json.RawMessage); ok {
-		return jsonHintType(m) // jsonHintType handles various JSON types including null
+		return HintType(m) // jsonHintType handles various JSON types including null
 	}
 	// If value is not json.RawMessage, we can't determine the JSON type.
 	return TypeNotJSON

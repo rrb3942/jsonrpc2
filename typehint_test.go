@@ -30,7 +30,7 @@ func TestJsonHintType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := jsonHintType(tt.input)
+			got := HintType(tt.input)
 			if got != tt.expected {
 				t.Errorf("jsonHintType(%q) = %v; want %v", tt.input, got, tt.expected)
 			}
