@@ -70,6 +70,138 @@ func TestNewResponseWithResult(t *testing.T) {
 	}
 }
 
+func TestResponse_Unmarshal(t *testing.T) {
+	t.Parallel()
+
+	type myStruct struct {
+		Field string `json:"field"`
+	}
+
+	t.Run("unmarshal result success", func(t *testing.T) {
+		t.Parallel()
+
+		resultData := myStruct{Field: "test_data"}
+		rawResult, err := json.Marshal(resultData)
+		require.NoError(t, err, "Failed to marshal test data for result")
+
+		resp := &Response{
+			ID:     NewID(int64(1)),
+			Result: Result{present: true, value: json.RawMessage(rawResult)},
+			Error:  Error{}, // Ensure Error is zero
+		}
+
+		var target myStruct
+		err = resp.Unmarshal(&target)
+		require.NoError(t, err)
+		assert.Equal(t, "test_data", target.Field)
+	})
+
+	t.Run("unmarshal result when response is error", func(t *testing.T) {
+		t.Parallel()
+
+		resp := NewResponseWithError(int64(1), NewError(123, "test error"))
+
+		var target myStruct
+		err := resp.Unmarshal(&target)
+		require.Error(t, err)
+		assert.Equal(t, ErrResponseIsError, err)
+	})
+
+	t.Run("unmarshal result with nil value", func(t *testing.T) {
+		t.Parallel()
+		// Create a response where Result.value is json.RawMessage("null")
+		// This simulates a JSON `null` result.
+		resp := &Response{
+			ID:     NewID(int64(1)),
+			Result: Result{present: true, value: json.RawMessage("null")},
+			Error:  Error{}, // Ensure Error is zero
+		}
+
+		var target *myStruct // Target must be a pointer to handle JSON null
+		err := resp.Unmarshal(&target)
+		require.NoError(t, err)
+		assert.Nil(t, target)
+	})
+
+	t.Run("unmarshal result with zero value Result struct", func(t *testing.T) {
+		t.Parallel()
+		// This represents a response where the "result" field was entirely absent
+		// or Result was not properly initialized.
+		resp := &Response{ID: NewID(int64(1)), Result: Result{}} // Result{}.IsZero() is true
+
+		var target myStruct
+		err := resp.Unmarshal(&target)
+		// Result.Unmarshal returns ErrEmptyData when its internal value is not json.RawMessage
+		// or if it's nil (which is the case for a zero Result struct).
+		require.ErrorIs(t, err, ErrEmptyData)
+	})
+}
+
+func TestResponse_UnmarshalError(t *testing.T) {
+	t.Parallel()
+
+	type myErrorData struct {
+		Detail string `json:"detail"`
+	}
+
+	t.Run("unmarshal error data success", func(t *testing.T) {
+		t.Parallel()
+
+		errorPayload := myErrorData{Detail: "error_detail"}
+		rawErrorPayload, err := json.Marshal(errorPayload)
+		require.NoError(t, err, "Failed to marshal test data for error data")
+
+		respError := NewError(123, "test error")
+		respError.Data = ErrorData{present: true, value: json.RawMessage(rawErrorPayload)}
+
+		resp := &Response{
+			ID:     NewID(int64(1)),
+			Error:  respError,
+			Result: Result{}, // Ensure Result is zero
+		}
+
+		var target myErrorData
+		err = resp.UnmarshalError(&target)
+		require.NoError(t, err)
+		assert.Equal(t, "error_detail", target.Detail)
+	})
+
+	t.Run("unmarshal error data when response is not error", func(t *testing.T) {
+		t.Parallel()
+
+		resp := NewResponseWithResult(int64(1), "success")
+
+		var target myErrorData
+		err := resp.UnmarshalError(&target)
+		require.Error(t, err)
+		assert.Equal(t, ErrResponseNotError, err)
+	})
+
+	t.Run("unmarshal error data when error data is nil", func(t *testing.T) {
+		t.Parallel()
+		// Error without explicit data, Error.Data will be zero.
+		resp := NewResponseWithError(int64(1), NewError(123, "test error"))
+
+		var target *myErrorData // Target must be a pointer to handle potential JSON null or empty data
+		err := resp.UnmarshalError(&target)
+		// Error.Data.Unmarshal returns ErrEmptyData when its internal value is not json.RawMessage
+		// or if it's nil (which is the case for a zero ErrorData struct).
+		require.ErrorIs(t, err, ErrEmptyData)
+		assert.Nil(t, target) // Expect target to be nil as no data was unmarshalled
+	})
+
+	t.Run("unmarshal error data with zero value Error struct", func(t *testing.T) {
+		t.Parallel()
+		// This represents a response where the "error" field was entirely absent
+		// or Error was not properly initialized.
+		resp := &Response{ID: NewID(int64(1)), Error: Error{}} // Error{}.IsZero() is true
+
+		var target myErrorData
+		err := resp.UnmarshalError(&target)
+		require.ErrorIs(t, err, ErrResponseNotError) // IsZero() makes it seem like not an error
+	})
+}
+
 func TestNewResponseWithError(t *testing.T) {
 	t.Parallel()
 
