@@ -9,12 +9,6 @@ import (
 	"sync"
 )
 
-var (
-	// Used for checking for json errors.
-	errSyntax   = &json.SyntaxError{}
-	errJSONType = &json.UnmarshalTypeError{}
-)
-
 // RPCServer represents a single JSON-RPC 2.0 server instance that handles requests
 // and notifications over a specific transport (like a single network connection or
 // packet stream). It reads requests using an internal decoder (wrapping [Decoder] or
@@ -417,8 +411,9 @@ func (rp *RPCServer) Run(ctx context.Context) (err error) {
 		from, err = rp.decoder.DecodeFrom(sctx, &buf)
 
 		if err != nil {
+			var syntaxError *json.SyntaxError
 			// Handle specific JSON parsing errors.
-			if errors.As(err, &errSyntax) {
+			if errors.As(err, &syntaxError) {
 				// Send Parse Error response.
 				_ = rp.encoder.EncodeTo(sctx, NewResponseError(ErrParseError.WithData(err.Error())), from) // Use sctx for encoding attempt.
 				rp.Callbacks.runOnDecodingError(sctx, buf, err)
@@ -433,7 +428,8 @@ func (rp *RPCServer) Run(ctx context.Context) (err error) {
 				continue
 			}
 
-			if errors.As(err, &errJSONType) {
+			var unmarshalTypeError *json.UnmarshalTypeError
+			if errors.As(err, &unmarshalTypeError) {
 				// Send Invalid Request error response.
 				_ = rp.encoder.EncodeTo(sctx, NewResponseError(ErrInvalidRequest.WithData(err.Error())), from)
 				rp.Callbacks.runOnDecodingError(sctx, buf, err)
