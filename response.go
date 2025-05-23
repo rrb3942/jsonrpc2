@@ -1,5 +1,15 @@
 package jsonrpc2
 
+import "errors"
+
+var (
+	// ErrResponseIsError is returned when trying to use an error response as a regular response.
+	ErrResponseIsError = errors.New("response is an error")
+
+	// ErrResponseNotError is returned when trying to use an error response as a regular response.
+	ErrResponseNotError = errors.New("response is a response")
+)
+
 // Response represents a JSON-RPC 2.0 response object.
 //
 // A response must contain either a [Result] or an [Error], but not both.
@@ -66,6 +76,38 @@ func NewResponseWithError[I int64 | string](id I, e error) *Response {
 func NewResponseError(e error) *Response {
 	// TODO: Consider smarter error code mapping here (e.g., check if e matches ErrParseErrorError, etc.)
 	return &Response{ID: NewNullID(), Error: asError(e)}
+}
+
+// Unmarshal attempts to unmarshal the result of the JSON-RPC response into the
+// provided variable v.
+//
+// If the response itself represents an error (i.e., r.Error is not zero),
+// Unmarshal returns ErrResponseIsError and does not attempt to unmarshal the result.
+// Otherwise, it calls the Unmarshal method on r.Result, passing v as the target.
+//
+// The v argument must be a pointer, similar to the behavior of json.Unmarshal.
+func (r *Response) Unmarshal(v any) error {
+	if r.Error.IsZero() {
+		return r.Result.Unmarshal(v)
+	}
+
+	return ErrResponseIsError
+}
+
+// UnmarshalError unmarshals the error data from the response into the given
+// variable v.
+//
+// If the response does not represent an error (i.e., r.Error is nil or zero),
+// it returns ErrResponseIsResponse. Otherwise, it attempts to unmarshal
+// the r.Error.Data field into v.
+//
+// It returns an error if unmarshalling fails or if the response is not an error.
+func (r *Response) UnmarshalError(v any) error {
+	if r.Error.IsZero() {
+		return ErrResponseNotError
+	}
+
+	return r.Error.Data.Unmarshal(v)
 }
 
 // IsError returns true if the response contains an [Error] object (indicating failure),
