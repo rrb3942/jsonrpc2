@@ -33,29 +33,16 @@ type Encoder interface {
 // This allows customizing the encoder used by [Server] or [Client].
 type NewEncoderFunc func(w io.Writer) Encoder
 
-// lockWriter wraps an io.Writer with a mutex to ensure thread-safe writes.
-type lockWriter struct {
-	w  io.Writer
-	mu sync.Mutex
-}
-
-func (lw *lockWriter) Write(data []byte) (int, error) {
-	lw.mu.Lock()
-	defer lw.mu.Unlock()
-
-	return lw.w.Write(data)
-}
-
 // StreamEncoder provides a stream-based [Encoder] implementation.
 // It writes JSON objects sequentially to an [io.Writer].
 // Use [NewStreamEncoder] to create instances.
 // It ensures thread-safe writes to the underlying writer and supports
 // optional idle timeouts via [StreamEncoder.SetIdleTimeout].
 type StreamEncoder struct {
-	lw *lockWriter   // Internal lock-protected writer
 	w  io.Writer     // Original underlying writer
 	e  JSONEncoder   // The actual JSON encoder (e.g., from encoding/json)
 	t  time.Duration // Idle timeout duration (0 means no timeout)
+	mu sync.Mutex    // Mutex for thread-safe access
 }
 
 // NewEncoder creates a new [StreamEncoder] that writes to w.
@@ -68,12 +55,10 @@ func NewEncoder(w io.Writer) Encoder {
 }
 
 // NewStreamEncoder creates and returns a new [*StreamEncoder] that writes to w.
-// It wraps the writer to ensure thread-safety for concurrent [StreamEncoder.Encode] calls.
+// It is safe for concurrent [StreamEncoder.Encode] calls.
 func NewStreamEncoder(w io.Writer) *StreamEncoder {
-	// Wrap the writer in a lockWriter to synchronize access.
-	lw := &lockWriter{w: w}
 	// Initialize with the lockWriter and the default JSON encoder function.
-	return &StreamEncoder{lw: lw, w: w, e: NewJSONEncoder(lw)}
+	return &StreamEncoder{w: w, e: NewJSONEncoder(w)}
 }
 
 // SetIdleTimeout configures an idle timeout for the [StreamEncoder.Encode] operation.
@@ -94,6 +79,8 @@ func NewStreamEncoder(w io.Writer) *StreamEncoder {
 //	enc := NewStreamEncoder(conn)
 //	enc.SetIdleTimeout(10 * time.Second) // Set a 10-second write timeout
 func (i *StreamEncoder) SetIdleTimeout(d time.Duration) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	i.t = d
 }
 
@@ -165,6 +152,8 @@ func (i *StreamEncoder) cancelEncode(ctx context.Context, cWriter io.Closer, v a
 // the provided context for cancellation. This method is goroutine-safe due
 // to internal locking.
 func (i *StreamEncoder) Encode(ctx context.Context, v any) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	// Check if the underlying writer supports cancellation mechanisms (Closer or DeadlineWriter).
 	// Note: The actual writer passed to cancelEncode might be the original writer `i.w`
 	// or potentially the `lockWriter` if it also implements Closer/DeadlineWriter,
@@ -185,6 +174,9 @@ func (i *StreamEncoder) Encode(ctx context.Context, v any) error {
 // This is useful for releasing resources like network connections or files.
 // Returns nil if the writer does not implement [io.Closer].
 func (i *StreamEncoder) Close() error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
 	if c, ok := i.w.(io.Closer); ok {
 		return c.Close()
 	}
