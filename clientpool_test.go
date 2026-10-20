@@ -692,6 +692,49 @@ func TestClientPool_IdleTimeout(t *testing.T) {
 	res2.Release()
 }
 
+// The reaper acquires every idle connection on each tick; connections that are
+// not yet expired must go back to the pool, or capacity drains and Close hangs.
+func TestClientPool_IdleReaperReleasesUnexpired(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping idle timeout test in short mode")
+	}
+
+	idleTime := 100 * time.Millisecond
+	config := ClientPoolConfig{
+		URI:         "mock://",
+		IdleTimeout: idleTime,
+		MaxSize:     1,
+	}
+
+	pool, err := NewClientPoolWithDialer(t.Context(), config, func(_ context.Context, _ string) (*TransportClient, error) {
+		mockC := &mockPoolClient{}
+		return NewTransportClient(mockC, mockC), nil
+	})
+	require.NoError(t, err)
+
+	// Calling more often than IdleTimeout keeps the connection unexpired at
+	// every reaper tick, so each tick takes the not-yet-expired path.
+	deadline := time.Now().Add(5 * idleTime)
+	for time.Now().Before(deadline) {
+		_, err := pool.CallWithTimeout(t.Context(), idleTime, NewRequest(int64(1), "ping"))
+		require.NoError(t, err, "Call should not block on a drained pool")
+		time.Sleep(idleTime / 4)
+	}
+
+	closed := make(chan struct{})
+
+	go func() {
+		pool.Close()
+		close(closed)
+	}()
+
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not return; a connection was never released")
+	}
+}
+
 func TestClientPool_MaxSize(t *testing.T) {
 	maxSize := int32(2)
 	dialCount := atomic.Int32{}

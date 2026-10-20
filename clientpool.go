@@ -191,6 +191,9 @@ func NewClientPoolWithDialer(nctx context.Context, config ClientPoolConfig, dial
 					res.Destroy()
 				} else {
 					nextWait = min(nextWait, config.IdleTimeout-idleTime)
+					// ReleaseUnused keeps the original last-used time, so the reaper's
+					// own acquire doesn't reset the idle clock.
+					res.ReleaseUnused()
 				}
 			}
 
