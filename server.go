@@ -260,12 +260,10 @@ func (s *Server) listenAndServeHTTP(ctx context.Context, uri *url.URL) error {
 	go func() {
 		<-shutdownCtx.Done() // Wait for the signal to shut down.
 
-		// Create a context with timeout for the shutdown process itself.
-		sctx, sStop := context.WithTimeout(context.Background(), s.HTTPShutdownTimeout)
+		// shutdownCtx is already cancelled; detach from it so the shutdown gets its own timeout.
+		sctx, sStop := context.WithTimeout(context.WithoutCancel(shutdownCtx), s.HTTPShutdownTimeout)
 		defer sStop()
 
-		// Attempt graceful shutdown.
-		//nolint:contextcheck // Shutdown timeout, if we inherit it will already be cancelled
 		if err := httpServer.Shutdown(sctx); err != nil {
 			// If graceful shutdown fails (e.g., timeout exceeded), force close.
 			_ = httpServer.Close() // Error ignored on forced close.
